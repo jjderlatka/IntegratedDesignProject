@@ -3,7 +3,7 @@
 
 using MotorShield = Adafruit_MotorShield;
 using Motor = Adafruit_DCMotor;
-using Time = unsigned long long // toDo: make sure no name collisions
+using Time = unsigned long long; // toDo: make sure no name collisions
 
 enum Side {Left, Right};
 enum Phase {WaitingForStart, Moving, Stopped};
@@ -12,7 +12,7 @@ class LineSensor {
 private: 
   int pin;
 public:
-  LineSensor () {};
+  LineSensor () = default;
   LineSensor (int p) {
     pin = p;
     pinMode(pin, INPUT);
@@ -27,7 +27,7 @@ class Robot {
 private:
   // output
   MotorShield motorshield;
-  Motor* motors[2];
+  Motor* motor[2];
   // Servo armsServo;
   // input
   LineSensor lineSensor[2];
@@ -39,12 +39,9 @@ private:
   int currentPosition; //mm
   // time
   Time currentTime; //ms
+  Time startTime; //ms
   Time lastMotorUpdate; //ms
   Time effectIntervalMotor; //ms
-
-  void updateTime() {
-    currentTime = millis();
-  }
 
   void updatePosition() {
     // ToDo: discuss with the team
@@ -76,7 +73,7 @@ private:
   }
 
 public:
-  Robot();
+  Robot() = default;
   Robot (/*int servoPin,*/
     int leftMotorPort, 
     int rightMotorPort,
@@ -88,12 +85,13 @@ public:
       motor[Right] = motorshield.getMotor(rightMotorPort);
       //armsServo.attach(servoPin);
 
-      lineSensor[Left] = lineSensor(leftLineSensorPin);
-      lineSensor[Right] = lineSensor(rightLineSensorPin);
+      lineSensor[Left] = LineSensor(leftLineSensorPin);
+      lineSensor[Right] = LineSensor(rightLineSensorPin);
 
-      if (!robot.motorshield.begin()) throw;
+      if (!motorshield.begin()); // toDo: handle error
 
       currentTime = 0; //ms
+      startTime = 0; //ms
       lastMotorUpdate = 0; //ms
       effectIntervalMotor = 100; //ms
 
@@ -106,6 +104,7 @@ public:
     // ToDo: implement steady acceleration
     // maybe add it in the set motor speed function
     // could save requested speed as a variable and move towards it gradually
+    startTime = currentTime;
     setMotorSpeed(Left, maxSpeed);
     setMotorSpeed(Right, maxSpeed);
   }
@@ -130,7 +129,7 @@ public:
 
   bool reachedDestination() {
     int targetTime = 3 * 1000; //3s
-    return currentTime-targetTime >= 0;
+    return (currentTime-startTime)-targetTime >= 0;
   }
 
   Phase getPhase() {
@@ -138,8 +137,21 @@ public:
   }
 
   void advancePhase() {
-    if (phase==Stopped) phase = WaitingForStart;
-    else ++phase;
+    switch (phase) {
+      case WaitingForStart:
+        phase = Moving;
+        break;
+      case Moving:
+        phase = Stopped;
+        break;
+      case Stopped:
+        phase = WaitingForStart;
+        break;
+    }
+  }
+
+  void updateTime() {
+    currentTime = static_cast<Time>(millis());
   }
 };
 
@@ -151,11 +163,11 @@ Robot robot;
 
 void setup() {
   // put your setup code here, to run once:
-  robot = Robot(1, 2, 3, 4, 5);
-  robot.start();
+  robot = Robot(1, 2, 3, 4);
 }
 
 void loop() {
+  robot.updateTime();
   switch (robot.getPhase()) {
     case WaitingForStart:
       robot.start();
@@ -167,41 +179,3 @@ void loop() {
       robot.stop();
   }
 }
-
-
-/*
-
-enum Phase {movementForward, armsClosing, movementBack, rotation, armsOpening};
-
-class Robot {
-private:
-  int currentCube = 1;
-  Phase currentPhase;
-  bool leftLineSensorOK, rightLineSensorOK;
-public:
-  Robot() {
-    currentCube = 1;
-    currentPhase = movementForward;
-  }
-  void followLine();
-  bool reachedDestination();
-};
-
-//EXECUTION
-
-Robot robot;
-
-void setup() {
-  // put your setup code here, to run once:
-}
-
-void loop() {
-  // put your main code here, to run repeatedly:
-  if(!robot.reachedDestination()) {
-    robot.followLine();
-  } else {
-    
-  }
-
-}
-*/
