@@ -98,6 +98,8 @@ public:
       currentMotorSpeed[Left] = 0;
       currentMotorSpeed[Right] = 0;
       currentPosition = 0; // mm
+
+      phase = WaitingForStart;
   }
 
   void start() {
@@ -107,6 +109,9 @@ public:
     startTime = currentTime;
     setMotorSpeed(Left, maxSpeed);
     setMotorSpeed(Right, maxSpeed);
+    motor[Left]->run(FORWARD);
+    motor[Right]->run(FORWARD);
+    Serial.println("Start");
   }
 
   void stop() {
@@ -114,6 +119,8 @@ public:
     // as for acceleration
     setMotorSpeed(Left, 0);
     setMotorSpeed(Right, 0);
+    motor[Left]->run(RELEASE);
+    motor[Right]->run(RELEASE);
   }
 
   void followLine() {
@@ -128,15 +135,18 @@ public:
   }
 
   bool reachedDestination() {
-    int targetTime = 3 * 1000; //3s
-    return (currentTime-startTime)-targetTime >= 0;
+    int targetTime = 60 * 1000; //10s
+    return targetTime <= currentTime-startTime;
   }
 
   Phase getPhase() {
+    Serial.println("Get phase result");
+    Serial.println(phase);
     return phase;
   }
 
   void advancePhase() {
+    Serial.println(phase);
     switch (phase) {
       case WaitingForStart:
         phase = Moving;
@@ -148,6 +158,8 @@ public:
         phase = WaitingForStart;
         break;
     }
+    Serial.println("|");
+    Serial.println(phase);
   }
 
   void updateTime() {
@@ -163,19 +175,27 @@ Robot robot;
 
 void setup() {
   // put your setup code here, to run once:
-  robot = Robot(1, 2, 3, 4);
+  Serial.begin(9600);           // set up Serial library at 9600 bps
+  Serial.println("Porous a drink");
+  robot = Robot(3, 4, 2, 4);
 }
 
 void loop() {
   robot.updateTime();
   switch (robot.getPhase()) {
     case WaitingForStart:
+      Serial.println("Waiting for start");
       robot.start();
       robot.advancePhase();
+      break;
     case Moving:
+      Serial.println("Moving");
       if (!robot.reachedDestination()) robot.followLine();
       else robot.advancePhase();
+      break;
     case Stopped:
+      Serial.println("Stopped");
       robot.stop();
+      break;
   }
 }
