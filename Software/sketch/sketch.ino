@@ -140,13 +140,11 @@ public:
   }
 
   Phase getPhase() {
-    Serial.println("Get phase result");
     Serial.println(phase);
     return phase;
   }
 
   void advancePhase() {
-    Serial.println(phase);
     switch (phase) {
       case WaitingForStart:
         phase = Moving;
@@ -158,8 +156,6 @@ public:
         phase = WaitingForStart;
         break;
     }
-    Serial.println("|");
-    Serial.println(phase);
   }
 
   void updateTime() {
