@@ -41,7 +41,10 @@ private:
   Time currentTime; //ms
   Time startTime; //ms
   Time lastMotorUpdate; //ms
+  // control
   Time effectIntervalMotor; //ms
+  int motorStep = 10;
+
 
   void updatePosition() {
     // ToDo: discuss with the team
@@ -56,6 +59,7 @@ private:
 
   void setMotorSpeed(Side side, int speed){
     // ToDo: catch if speed is a value outside of limits
+    if (speed < 0) speed = 0;
     currentMotorSpeed[side] = speed;
     lastMotorUpdate = currentTime;
     motor[side]->setSpeed(speed);
@@ -126,8 +130,8 @@ public:
   void followLine() {
     int direction = getDirection();
     if (direction!=0 && currentTime-lastMotorUpdate > effectIntervalMotor) {
-      if (direction==-1) setMotorSpeed(Right, currentMotorSpeed[Right]-1);
-      else if (direction==1) setMotorSpeed(Left, currentMotorSpeed[Left]-1);
+      if (direction==-1) setMotorSpeed(Right, currentMotorSpeed[Right]-motorStep);
+      else if (direction==1) setMotorSpeed(Left, currentMotorSpeed[Left]-motorStep);
     } else if (direction==0) {
       setMotorSpeed(Left, maxSpeed);
       setMotorSpeed(Right, maxSpeed);
@@ -181,6 +185,7 @@ void loop() {
   switch (robot.getPhase()) {
     case WaitingForStart:
       Serial.println("Waiting for start");
+      delay(1000); // ToDo: remove
       robot.start();
       robot.advancePhase();
       break;
