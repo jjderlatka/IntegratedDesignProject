@@ -7,6 +7,7 @@ using Time = unsigned long long; // toDo: make sure no name collisions
 
 enum Side {Left, Right};
 enum Phase {WaitingForStart, Moving, Stopped};
+enum Direction {Backward, Forward};
 
 class LineSensor {
 private: 
@@ -33,6 +34,7 @@ private:
   LineSensor lineSensor[2];
   // State variables
   Phase phase;
+  Direction movementDirection;
   //
   int currentMotorSpeed[2];
   int maxSpeed = 255;
@@ -60,12 +62,13 @@ private:
   void setMotorSpeed(Side side, int speed){
     // ToDo: catch if speed is a value outside of limits
     if (speed < 0) speed = 0;
+    if (speed > maxSpeed) speed = maxSpeed;
     currentMotorSpeed[side] = speed;
     lastMotorUpdate = currentTime;
     motor[side]->setSpeed(speed);
   }
 
-  int getDirection() {
+  int getAlignment() {
     bool readingLeft = lineSensor[Left].read();
     bool readingRight = lineSensor[Right].read();
     // turning left
@@ -104,6 +107,7 @@ public:
       currentPosition = 0; // mm
 
       phase = WaitingForStart;
+      movementDirection = Backward; // because its switched in the loop
   }
 
   void start() {
@@ -113,9 +117,13 @@ public:
     startTime = currentTime;
     setMotorSpeed(Left, maxSpeed);
     setMotorSpeed(Right, maxSpeed);
-    motor[Left]->run(FORWARD);
-    motor[Right]->run(FORWARD);
-    Serial.println("Start");
+    if (movementDirection == Forward) {
+      motor[Left]->run(FORWARD);
+      motor[Right]->run(FORWARD);
+    } else {
+      motor[Left]->run(BACKWARD);
+      motor[Right]->run(BACKWARD);
+    }
   }
 
   void stop() {
@@ -128,23 +136,31 @@ public:
   }
 
   void followLine() {
-    int direction = getDirection();
-    if (direction!=0 && currentTime-lastMotorUpdate > effectIntervalMotor) {
-      if (direction==-1) setMotorSpeed(Right, currentMotorSpeed[Right]-motorStep);
-      else if (direction==1) setMotorSpeed(Left, currentMotorSpeed[Left]-motorStep);
-    } else if (direction==0) {
+    int alignment = getAlignment();
+    // not aligned
+    if (alignment!=0 && currentTime-lastMotorUpdate > effectIntervalMotor) {
+      // forward
+      if (movementDirection == Forward) {
+        if (alignment==-1) setMotorSpeed(Right, currentMotorSpeed[Right]-motorStep);
+        else if (alignment==1) setMotorSpeed(Left, currentMotorSpeed[Left]-motorStep);
+      // backward
+      } else {
+        if (alignment==-1) setMotorSpeed(Left, currentMotorSpeed[Left]-motorStep);
+        else if (alignment==1) setMotorSpeed(Right, currentMotorSpeed[Right]-motorStep);
+      }
+    // aligned
+    } else if (alignment==0) {
       setMotorSpeed(Left, maxSpeed);
       setMotorSpeed(Right, maxSpeed);
     }
   }
 
   bool reachedDestination() {
-    int targetTime = 60 * 1000; //10s
+    int targetTime = 10 * 1000; //10s
     return targetTime <= currentTime-startTime;
   }
 
   Phase getPhase() {
-    Serial.println(phase);
     return phase;
   }
 
@@ -164,6 +180,11 @@ public:
 
   void updateTime() {
     currentTime = static_cast<Time>(millis());
+  }
+
+  void switchDirection() {
+    if (movementDirection==Forward) movementDirection=Backward;
+    else movementDirection=Forward;
   }
 };
 
@@ -186,6 +207,7 @@ void loop() {
     case WaitingForStart:
       Serial.println("Waiting for start");
       delay(1000); // ToDo: remove
+      robot.switchDirection();
       robot.start();
       robot.advancePhase();
       break;
@@ -197,6 +219,8 @@ void loop() {
     case Stopped:
       Serial.println("Stopped");
       robot.stop();
+      delay(1000); // ToDo: remove
+      robot.advancePhase();
       break;
   }
 }
