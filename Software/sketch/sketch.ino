@@ -31,7 +31,7 @@ private:
   Motor* motor[2];
   // Servo armsServo;
   // input
-  LineSensor lineSensor[2];
+  LineSensor lineSensor[2][2];
   // State variables
   Phase phase;
   Direction movementDirection;
@@ -68,9 +68,9 @@ private:
     motor[side]->setSpeed(speed);
   }
 
-  int getAlignment() {
-    bool readingLeft = lineSensor[Left].read();
-    bool readingRight = lineSensor[Right].read();
+  int getAlignment(Direction direction) {
+    bool readingLeft = lineSensor[direction][Left].read();
+    bool readingRight = lineSensor[direction][Right].read();
     // turning left
     if (!readingLeft && readingRight) return -1;
     // turning right
@@ -84,16 +84,20 @@ public:
   Robot (/*int servoPin,*/
     int leftMotorPort, 
     int rightMotorPort,
-    int leftLineSensorPin,
-    int rightLineSensorPin) {
+    int frontLeftLineSensorPin,
+    int frontRightLineSensorPin,
+    int rearLeftLineSensorPin,
+    int rearRightLineSensorPin) {
       // think about breaking this into several functions for clarity
       motorshield = Adafruit_MotorShield();
       motor[Left] = motorshield.getMotor(leftMotorPort);
       motor[Right] = motorshield.getMotor(rightMotorPort);
       //armsServo.attach(servoPin);
 
-      lineSensor[Left] = LineSensor(leftLineSensorPin);
-      lineSensor[Right] = LineSensor(rightLineSensorPin);
+      lineSensor[Forward][Left] = LineSensor(frontLeftLineSensorPin);
+      lineSensor[Forward][Right] = LineSensor(frontRightLineSensorPin);
+      lineSensor[Backward][Left] = LineSensor(rearLeftLineSensorPin);
+      lineSensor[Backward][Right] = LineSensor(rearRightLineSensorPin);
 
       if (!motorshield.begin()); // toDo: handle error
 
@@ -136,18 +140,11 @@ public:
   }
 
   void followLine() {
-    int alignment = getAlignment();
+    int alignment = getAlignment(movementDirection);
     // not aligned
     if (alignment!=0 && currentTime-lastMotorUpdate > effectIntervalMotor) {
-      // forward
-      if (movementDirection == Forward) {
         if (alignment==-1) setMotorSpeed(Right, currentMotorSpeed[Right]-motorStep);
         else if (alignment==1) setMotorSpeed(Left, currentMotorSpeed[Left]-motorStep);
-      // backward
-      } else {
-        if (alignment==-1) setMotorSpeed(Left, currentMotorSpeed[Left]-motorStep);
-        else if (alignment==1) setMotorSpeed(Right, currentMotorSpeed[Right]-motorStep);
-      }
     // aligned
     } else if (alignment==0) {
       setMotorSpeed(Left, maxSpeed);
@@ -198,7 +195,7 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);           // set up Serial library at 9600 bps
   Serial.println("Porous a drink");
-  robot = Robot(3, 4, 2, 4);
+  robot = Robot(3, 4, 2, 4, 12, 13);
 }
 
 void loop() {
