@@ -6,7 +6,7 @@ using Motor = Adafruit_DCMotor;
 using Time = unsigned long long; // toDo: make sure no name collisions
 
 enum Side {Left, Right};
-enum Phase {WaitingForStart, Moving, Stopped};
+enum Phase {WaitingForStart, Moving, Turning};
 
 class LineSensor {
 private: 
@@ -44,18 +44,22 @@ private:
   // control
   Time effectIntervalMotor; //ms
   int motorStep = 10;
+  // for the rotation
+  int currentDirection;
+  int lastDirection;
+  int secondLastDirection;
 
 
   void updatePosition() {
     // ToDo: discuss with the team
   }
 
-  // void setServoAngle(int angle) {
-  //  // ToDo: throw exception if angle out of limits
-  //  // for arms, take account of the gearing, 
-  //  // using a gearing config variable
-  //  armsServo.write(angle);
-  // }
+  void setServoAngle(int angle) {
+    // ToDo: throw exception if angle out of limits
+    // for arms, take account of the gearing, 
+    // using a gearing config variable
+    armsServo.write(angle);
+  }
 
   void setMotorSpeed(Side side, int speed){
     // ToDo: catch if speed is a value outside of limits
@@ -103,6 +107,9 @@ public:
       currentMotorSpeed[Right] = 0;
       currentPosition = 0; // mm
 
+      currentDirection = 0;
+      lastDirection = 0;
+
       phase = WaitingForStart;
   }
 
@@ -115,7 +122,6 @@ public:
     setMotorSpeed(Right, maxSpeed);
     motor[Left]->run(FORWARD);
     motor[Right]->run(FORWARD);
-    Serial.println("Start");
   }
 
   void stop() {
@@ -138,13 +144,45 @@ public:
     }
   }
 
-  bool reachedDestination() {
-    int targetTime = 60 * 1000; //10s
+  void startRotation(Side side) {
+    startTime = currentTime;
+    setMotorSpeed(Left, maxSpeed);
+    setMotorSpeed(Right, maxSpeed);
+    if (side==Left) {
+      motor[Left]->run(BACKWARD);
+      motor[Right]->run(FORWARD);
+    } else {
+      motor[Left]->run(FORWARD);
+      motor[Right]->run(BACKWARD);
+    }
+  }
+
+  bool foundLine(Side turningDirection) {
+    lastDirection = currentDirection;
+    currentDirection = getDirection();
+
+    if (currentDirection==0) {
+      if (turningDirection==Left) return lastDirection==1;
+      if (turningDirection==Right) return lastDirection==-1;
+    }
+  }
+
+  bool foundIntersection() {
+    bool readingLeft = lineSensor[Left].read();
+    bool readingRight = lineSensor[Right].read();
+    return readingLeft && readingRight;
+  }
+
+  bool timedOut(Time targetTime) {
     return targetTime <= currentTime-startTime;
   }
 
+  bool reachedDestination() {
+    return timedOut(20*1000); //50 s
+    //return foundIntersection();
+  }
+
   Phase getPhase() {
-    Serial.println(phase);
     return phase;
   }
 
@@ -154,10 +192,10 @@ public:
         phase = Moving;
         break;
       case Moving:
-        phase = Stopped;
+        phase = Turning;
         break;
-      case Stopped:
-        phase = WaitingForStart;
+      case Turning:
+        phase = Moving;
         break;
     }
   }
@@ -185,18 +223,28 @@ void loop() {
   switch (robot.getPhase()) {
     case WaitingForStart:
       Serial.println("Waiting for start");
-      delay(1000); // ToDo: remove
+      delay(3000); // ToDo: remove
       robot.start();
       robot.advancePhase();
       break;
     case Moving:
       Serial.println("Moving");
-      if (!robot.reachedDestination()) robot.followLine();
-      else robot.advancePhase();
+      if (robot.reachedDestination()) {
+        Serial.println("reached");
+        robot.stop();
+        robot.startRotation(Left);
+        robot.advancePhase();
+      } else {
+        robot.followLine();
+      }
       break;
-    case Stopped:
-      Serial.println("Stopped");
-      robot.stop();
+    case Turning:
+      Serial.println("Turning");
+      if (robot.foundLine(Left)) {
+        robot.stop();
+        robot.start();
+        robot.advancePhase();
+      }
       break;
   }
 }
