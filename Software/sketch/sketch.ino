@@ -44,6 +44,9 @@ private:
   // control
   Time effectIntervalMotor; //ms
   int motorStep = 10;
+  // calibration constants
+  Time rampTime = 13405; //ms
+  double flatSpeed = 0.09940028 * 1e-3; // m/ms
 
 
   void updatePosition() {
@@ -139,7 +142,10 @@ public:
   }
 
   bool reachedDestination() {
-    int targetTime = 60 * 1000; //10s
+    /*int targetTime = 60 * 1000; //10s
+    return targetTime <= currentTime-startTime;*/
+    double targetDistance = 0.5; //m (behind the ramp beginning)
+    Time targetTime = rampTime + (Time)(targetDistance / flatSpeed);
     return targetTime <= currentTime-startTime;
   }
 
