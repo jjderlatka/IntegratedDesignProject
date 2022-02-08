@@ -6,7 +6,7 @@ using Motor = Adafruit_DCMotor;
 using Time = unsigned long long; // toDo: make sure no name collisions
 
 enum Side {Left, Right};
-enum Phase {WaitingForStart, Moving, Turning};
+enum Phase {WaitingForStart, Moving, Stopped};
 
 class LineSensor {
 private: 
@@ -54,12 +54,12 @@ private:
     // ToDo: discuss with the team
   }
 
-  void setServoAngle(int angle) {
+  /*void setServoAngle(int angle) {
     // ToDo: throw exception if angle out of limits
     // for arms, take account of the gearing, 
     // using a gearing config variable
     armsServo.write(angle);
-  }
+  }*/
 
   void setMotorSpeed(Side side, int speed){
     // ToDo: catch if speed is a value outside of limits
@@ -178,7 +178,7 @@ public:
   }
 
   bool reachedDestination() {
-    return timedOut(20*1000); //50 s
+    return timedOut(120*1000); //50 s
     //return foundIntersection();
   }
 
@@ -192,10 +192,10 @@ public:
         phase = Moving;
         break;
       case Moving:
-        phase = Turning;
+        phase = Stopped;
         break;
-      case Turning:
-        phase = Moving;
+      case Stopped:
+        phase = WaitingForStart;
         break;
     }
   }
@@ -224,27 +224,18 @@ void loop() {
     case WaitingForStart:
       Serial.println("Waiting for start");
       delay(3000); // ToDo: remove
-      robot.start();
+      robot.startRotation(Left);
       robot.advancePhase();
       break;
     case Moving:
       Serial.println("Moving");
       if (robot.reachedDestination()) {
-        Serial.println("reached");
         robot.stop();
-        robot.startRotation(Left);
         robot.advancePhase();
-      } else {
-        robot.followLine();
       }
       break;
-    case Turning:
-      Serial.println("Turning");
-      if (robot.foundLine(Left)) {
-        robot.stop();
-        robot.start();
-        robot.advancePhase();
-      }
+    case Stopped:
+      Serial.println("Stopped");
       break;
   }
 }
