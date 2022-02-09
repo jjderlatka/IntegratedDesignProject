@@ -10,7 +10,7 @@ using Motor = Adafruit_DCMotor;
 using Time = unsigned long long; // toDo: make sure no name collisions
 
 enum Side {Left, Right};
-enum Phase {WaitingForStart, MovingForward, ClosingArms, Turning, OpeningArms, MovingBack};
+enum Phase {WaitingForStart, MovingForward, ClosingArms, MovingForwrd2, Turning, OpeningArms, MovingBack, Turning2, Moving3};
 
 class LineSensor {
 private: 
@@ -164,7 +164,7 @@ public:
     lastDirection = currentDirection;
     currentDirection = getDirection();
 
-    if (currentDirection==0) {
+    /*if (currentDirection==0) {
       if (turningDirection==Left && lastDirection==1) {
         if (startDirection==1) {
           startDirection = 0;
@@ -181,7 +181,14 @@ public:
           return true;
         }
       }
+    }*/
+
+    if (currentDirection==0) {
+      if (turningDirection==Left) return lastDirection==1;
+      else return lastDirection==-1;
     }
+
+    //return currentDirection!=0;
   }
 
   bool foundIntersection() {
@@ -217,12 +224,24 @@ public:
         phase = ClosingArms;
         break;
       case ClosingArms:
+        phase = MovingForwrd2;
+        break;
+      case MovingForwrd2:
         phase = Turning;
         break;
       case Turning:
+        phase = OpeningArms;
+        break;
+      case OpeningArms:
         phase = MovingBack;
         break;
       case MovingBack:
+        phase = Turning2;
+        break;
+      case Turning2:
+        phase = Moving3;
+        break;
+      case Moving3:
         phase = WaitingForStart;
         break;
     }
@@ -268,6 +287,9 @@ void loop() {
   robot.updateTime();
   robot.updatePosition();
   switch (robot.getPhase()) {
+   // WaitingForStart, MovingForward, ClosingArms, MovingForwrd2, Turning, OpeningArms, MovingBack
+   // find box - closing time
+   // find forwward time
     case WaitingForStart:
       Serial.println("Waiting for start");
       delay(3000); // ToDo: remove
@@ -278,7 +300,7 @@ void loop() {
     case MovingForward:
       Serial.println("Moving");
       //if (robot.reachedDistance(0.001)) {
-        if (robot.timedOut(18e3)) {
+      if (robot.timedOut(24e3)) {
         robot.stop();
         robot.closeArms();
         robot.advancePhase();
@@ -288,29 +310,53 @@ void loop() {
       break;
     case ClosingArms:
       Serial.println("Closing arms");
-      delay(2000); // ToDo: remove;
-      robot.startRotation(Left);
+      delay(2e3); // ToDo Remove
+      robot.start();
       robot.advancePhase();
+      break;
+    case MovingForwrd2:
+      if (robot.timedOut(4e3)) {
+        robot.stop();
+        robot.startRotation(Left);
+        robot.advancePhase();
+      } else {
+        robot.followLine();
+      }
       break;
     case Turning:
       Serial.println("Turning");
-      if (robot.rotatedByAngle(180) /*&& robot.foundLine(Left)*/) {
+      if (robot.rotatedByAngle(100) && robot.foundLine(Left)) {
       //if (true) {
-        Serial.println("stopped");
+        robot.stop();
+        robot.openArms();
+        robot.advancePhase();
+      }
+      break;
+    case OpeningArms:
+      robot.start();
+      robot.advancePhase();
+      break;
+    case MovingBack:
+      Serial.println("Moving back");
+      if (robot.timedOut(15e3)) {
+      //if (true) {
+        robot.stop();
+        robot.startRotation(Left);
+        robot.advancePhase();
+      } else {
+        robot.followLine();
+      }
+      break;
+    case Turning2:
+      if (robot.timedOut(2e3)) {
         robot.stop();
         robot.start();
         robot.advancePhase();
       }
       break;
-    case MovingBack:
-      Serial.println("Moving back");
-      if (robot.foundIntersection()) {
-      //if (true) {
+    case Moving3:
+      if (robot.timedOut(1e3)) {
         robot.stop();
-        robot.openArms();
-        robot.advancePhase();
-      } else {
-        robot.followLine();
       }
       break;
   }
