@@ -126,6 +126,28 @@ public:
     motor[Right]->run(FORWARD);
   }
 
+  void reverse() {
+    startTime = currentTime;
+    setMotorSpeed(Left, maxSpeed);
+    setMotorSpeed(Right, maxSpeed);
+    motor[Left]->run(BACKWARD);
+    motor[Right]->run(BACKWARD);
+  }
+
+  void startRotation(Side side) {
+    startTime = currentTime;
+    startDirection = getDirection();
+    setMotorSpeed(Left, maxSpeed);
+    setMotorSpeed(Right, maxSpeed);
+    if (side==Left) {
+      motor[Left]->run(BACKWARD);
+      motor[Right]->run(FORWARD);
+    } else {
+      motor[Left]->run(FORWARD);
+      motor[Right]->run(BACKWARD);
+    }
+  }
+
   void stop() {
     // ToDo: implement steady decceleration
     // as for acceleration
@@ -143,20 +165,6 @@ public:
     } else if (direction==0) {
       setMotorSpeed(Left, maxSpeed);
       setMotorSpeed(Right, maxSpeed);
-    }
-  }
-
-  void startRotation(Side side) {
-    startTime = currentTime;
-    startDirection = getDirection();
-    setMotorSpeed(Left, maxSpeed);
-    setMotorSpeed(Right, maxSpeed);
-    if (side==Left) {
-      motor[Left]->run(BACKWARD);
-      motor[Right]->run(FORWARD);
-    } else {
-      motor[Left]->run(FORWARD);
-      motor[Right]->run(BACKWARD);
     }
   }
 
