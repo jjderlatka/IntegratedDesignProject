@@ -10,7 +10,18 @@ using Motor = Adafruit_DCMotor;
 using Time = unsigned long long; // toDo: make sure no name collisions
 
 enum Side {Left, Right};
-enum Phase {WaitingForStart, MovingForward, ClosingArms, MovingForwrd2, Turning, OpeningArms, MovingBack, Turning2, Moving3};
+enum Phase {WaitingForStart, 
+            MovingForward, 
+            ClosingArms, 
+            MovingForwrd2, 
+            Turning, 
+            OpeningArms, 
+            MovingBack, 
+            Turning2, 
+            Moving3, 
+            Reversing,
+            Turning3,
+            Moving4};
 
 class LineSensor {
 private: 
@@ -231,6 +242,15 @@ public:
         phase = Moving3;
         break;
       case Moving3:
+        phase = Reversing;
+        break;
+      case Reversing:
+        phase = Turning3;
+        break;
+      case Turning3:
+        phase = Moving4;
+        break;
+      case Moving4:
         phase = WaitingForStart;
         break;
     }
@@ -346,6 +366,29 @@ void loop() {
     case Moving3:
       if (robot.timedOut(1e3)) {
         robot.stop();
+        robot.reverse();
+        robot.advancePhase();
+      }
+      break;
+    case Reversing:
+      if (robot.timedOut(1e3)) {
+        robot.stop();
+        robot.startRotation(Right);
+        robot.advancePhase();
+      }
+      break;
+    case Turning3:
+      if (robot.rotatedByAngle(50) && robot.foundLine(Right)) {
+        robot.stop();
+        robot.start();
+        robot.advancePhase();
+      }
+      break;
+    case Moving4:
+      if (robot.timedOut(6e3)) {
+        robot.stop();
+      } else {
+        robot.followLine();
       }
       break;
   }
