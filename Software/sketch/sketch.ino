@@ -1,27 +1,19 @@
 #include <Servo.h>
 #include <Adafruit_MotorShield.h>
 
-// todo 
-// foudn line fix
-// speed updates fix to make dist accurate
-
 using MotorShield = Adafruit_MotorShield;
 using Motor = Adafruit_DCMotor;
-using Time = unsigned long long; // toDo: make sure no name collisions
+using Time = unsigned long long;
 
 enum Side {Left, Right};
+// if movement time set to 0, use intersection
 enum Phase {WaitingForStart, 
             MovingForward, 
-            ClosingArms, 
-            MovingForwrd2, 
+            Reversing, 
             Turning, 
             OpeningArms, 
-            MovingBack, 
-            Turning2, 
-            Moving3, 
-            Reversing,
-            Turning3,
-            Moving4};
+            ClosingArms, 
+            Detect};
 
 class LineSensor {
 private: 
@@ -48,6 +40,11 @@ private:
   LineSensor lineSensor[2];
   // State variables
   Phase phase;
+  int currentCube;
+  // movement state variables
+  bool line; // true if stop movement on intersection or stop rotation on line detection
+  Time targetMovementTime; // time to drive forward or rotate ToDo: make an angle or distace
+  Side rotationDirection;
   //
   int currentMotorSpeed[2];
   int maxSpeed = 255;
@@ -58,23 +55,25 @@ private:
   // control
   Time effectIntervalMotor = 100; //ms
   int motorStep = 10;
-  // calibration constants
+  // for the rotation
+  int currentDirection, lastDirection, startDirection;
+  // distance from the ramp
+  double distanceFromRamp; // m
+  // CALIBRATION CONSTANTS
   Time rampTime = 13405; //ms
   double flatSpeed = 0.09940028 * 1e-3; // m/ms
   // TODO: WRONG
   //double angularSpeed = 19.416 * 1e-3; // deg / ms
   double angularSpeed = 30 * 1e-3; // deg / ms
-  // for the rotation
-  int currentDirection, lastDirection, startDirection;
-  // distance from the ramp
-  double distanceFromRamp; // m
   // arms
   // double closedAngle=45, openAngle=135;
   double closedAngle=45, openAngle=135;
+  // toDo: use distances instead
+  Time cubeTime[3] = {24e3};
 
   void setMotorSpeed(Side side, int speed){
-    // ToDo: catch if speed is a value outside of limits
     if (speed < 0) speed = 0;
+    if (speed > maxSpeed) speed = maxSpeed;
     currentMotorSpeed[side] = speed;
     lastMotorUpdate = currentTime;
     motor[side]->setSpeed(speed);
@@ -124,12 +123,10 @@ public:
       lastDirection = 0;
 
       phase = WaitingForStart;
+      currentCube = 1;
   }
 
   void start() {
-    // ToDo: implement steady acceleration
-    // maybe add it in the set motor speed function
-    // could save requested speed as a variable and move towards it gradually
     startTime = currentTime;
     setMotorSpeed(Left, maxSpeed);
     setMotorSpeed(Right, maxSpeed);
@@ -145,12 +142,12 @@ public:
     motor[Right]->run(BACKWARD);
   }
 
-  void startRotation(Side side) {
+  void startRotation() {
     startTime = currentTime;
     startDirection = getDirection();
     setMotorSpeed(Left, maxSpeed);
     setMotorSpeed(Right, maxSpeed);
-    if (side==Left) {
+    if (rotationDirection==Left) {
       motor[Left]->run(BACKWARD);
       motor[Right]->run(FORWARD);
     } else {
@@ -160,12 +157,20 @@ public:
   }
 
   void stop() {
-    // ToDo: implement steady decceleration
-    // as for acceleration
     setMotorSpeed(Left, 0);
     setMotorSpeed(Right, 0);
     motor[Left]->run(RELEASE);
     motor[Right]->run(RELEASE);
+  }
+
+  void closeArms() {
+    startTime = currentTime;
+    armsServo.write(closedAngle);
+  }
+
+  void openArms() {
+    startTime = currentTime;
+    armsServo.write(openAngle);
   }
 
   void followLine() {
@@ -179,6 +184,10 @@ public:
     }
   }
 
+  bool isMoving() {
+    return currentMotorSpeed[Left] > 0 || currentMotorSpeed[Right] > 0;
+  }
+
   bool foundLine(Side turningDirection) {
     lastDirection = currentDirection;
     currentDirection = getDirection();
@@ -187,8 +196,7 @@ public:
       if (turningDirection==Left) return lastDirection==1;
       else return lastDirection==-1;
     }
-
-    //return currentDirection!=0;
+    return false;
   }
 
   bool foundIntersection() {
@@ -202,8 +210,6 @@ public:
   }
 
   bool rotatedByAngle(double deg) {
-    Serial.println((currentTime-startTime)*angularSpeed);
-    Serial.println(deg);
     return (currentTime-startTime)*angularSpeed >= deg;
   }
 
@@ -211,10 +217,50 @@ public:
     return distanceFromRamp >= dist;
   }
 
+  bool reachedLinearDestination() {
+    if (line) return foundIntersection();
+    else return timedOut(targetMovementTime);
+  }
+
+  bool reachedTurningDestination() {
+    if (line) return foundLine() && timedOut(targetMovementTime);
+    else return timedOut(targetMovementTime);
+  }
+
+  bool reachedArmsDestination() {
+    return timedOut(targetMovementTime);
+  }
+
   Phase getPhase() {
     return phase;
   }
 
+  int getCurrentCube() {
+    return currentCube;
+  }
+
+  void updateTime() {
+    previousTime = currentTime;
+    currentTime = static_cast<Time>(millis());
+  }
+
+  void updatePosition() {
+    // ToDo: discuss with the team
+    if (currentTime-startTime <= rampTime) distanceFromRamp = 0;
+    else {
+      double currentSpeed = flatSpeed * (min(currentMotorSpeed[Left], currentMotorSpeed[Right])/maxSpeed);
+      distanceFromRamp += (currentTime-previousTime) * currentSpeed;
+    }
+  }
+
+  void blinkLeds() {
+    // ToDo: implement
+    if (isMoving()) {
+      //blink
+    }
+  }
+
+  // toDo: advance phases in correct order, set line and target movmement times
   void advancePhase() {
     switch (phase) {
       case WaitingForStart:
@@ -256,27 +302,6 @@ public:
     }
   }
 
-  void updateTime() {
-    previousTime = currentTime;
-    currentTime = static_cast<Time>(millis());
-  }
-
-  void updatePosition() {
-    // ToDo: discuss with the team
-    if (currentTime-startTime <= rampTime) distanceFromRamp = 0;
-    else {
-      double currentSpeed = flatSpeed * (min(currentMotorSpeed[Left], currentMotorSpeed[Right])/maxSpeed);
-      distanceFromRamp += (currentTime-previousTime) * currentSpeed;
-    }
-  }
-
-  void closeArms() {
-    armsServo.write(closedAngle);
-  }
-
-  void openArms() {
-    armsServo.write(openAngle);
-  }
 };
 
 //
@@ -295,101 +320,53 @@ void setup() {
 void loop() {
   robot.updateTime();
   robot.updatePosition();
-  switch (robot.getPhase()) {
-   // WaitingForStart, MovingForward, ClosingArms, MovingForwrd2, Turning, OpeningArms, MovingBack
-   // find box - closing time
-   // find forwward time
-    case WaitingForStart:
+  robot.blinkLeds();
+  Phase phase = robot.getPhase();
+  if (phase == WaitingForStart) {
       Serial.println("Waiting for start");
-      delay(3000); // ToDo: remove
-      robot.openArms();
-      robot.start();
-      robot.advancePhase();
-      break;
-    case MovingForward:
-      Serial.println("Moving");
-      //if (robot.reachedDistance(0.001)) {
-      if (robot.timedOut(24e3)) {
-        robot.stop();
-        robot.closeArms();
-        robot.advancePhase();
-      } else {
-        robot.followLine();
-      }
-      break;
-    case ClosingArms:
-      Serial.println("Closing arms");
-      delay(2e3); // ToDo Remove
-      robot.start();
-      robot.advancePhase();
-      break;
-    case MovingForwrd2:
-      if (robot.timedOut(4e3)) {
-        robot.stop();
-        robot.startRotation(Left);
-        robot.advancePhase();
-      } else {
-        robot.followLine();
-      }
-      break;
-    case Turning:
-      Serial.println("Turning");
-      if (robot.rotatedByAngle(100) && robot.foundLine(Left)) {
-      //if (true) {
-        robot.stop();
+      //if (robot.buttonOn()) {
+      if (robot.timedOut(3e3)) {
         robot.openArms();
         robot.advancePhase();
       }
-      break;
-    case OpeningArms:
+  } else if (phase == MovingForward) {
+    if (!robot.isMoving()) {
       robot.start();
+    } else if (!robot.reachedLinearDestination()) {
+      robot.followLine();
+    } else {
+      robot.stop();
       robot.advancePhase();
-      break;
-    case MovingBack:
-      Serial.println("Moving back");
-      if (robot.timedOut(15e3)) {
-      //if (true) {
-        robot.stop();
-        robot.startRotation(Left);
-        robot.advancePhase();
-      } else {
-        robot.followLine();
-      }
-      break;
-    case Turning2:
-      if (robot.timedOut(2e3)) {
-        robot.stop();
-        robot.start();
-        robot.advancePhase();
-      }
-      break;
-    case Moving3:
-      if (robot.timedOut(1e3)) {
-        robot.stop();
-        robot.reverse();
-        robot.advancePhase();
-      }
-      break;
-    case Reversing:
-      if (robot.timedOut(1e3)) {
-        robot.stop();
-        robot.startRotation(Right);
-        robot.advancePhase();
-      }
-      break;
-    case Turning3:
-      if (robot.rotatedByAngle(50) && robot.foundLine(Right)) {
-        robot.stop();
-        robot.start();
-        robot.advancePhase();
-      }
-      break;
-    case Moving4:
-      if (robot.timedOut(6e3)) {
-        robot.stop();
-      } else {
-        robot.followLine();
-      }
-      break;
+    }
+  } else if (phase == Reversing) {
+    if (!robot.isMoving()) {
+      robot.start();
+    } else if (!robot.reachedLinearDestination()) {
+      // carry on, do nothing
+    } else {
+      robot.stop();
+      robot.advancePhase();
+    }
+  } else if (phase == Turning) {
+    if (!robot.isMoving()) {
+      robot.startRotation();
+    } else if (!robot.reachedTurningDestination()) {
+      // carry on, do nothing
+    } else {
+      robot.stop();
+      robot.advancePhase();
+    }
+  } else if (phase == ClosingArms) {
+    robot.closeArms();
+    if (robot.reachedArmsDestination()) {
+      robot.advancePhase();
+    }
+  } else if (phase == OpeningArms) {
+    robot.openArms();
+    if (robot.reachedArmsDestination()) {
+      robot.advancePhase();
+    }
+  } else if (phase == Detect) {
+    // toDo: implement detection
   }
 }
