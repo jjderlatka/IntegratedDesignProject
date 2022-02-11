@@ -6,15 +6,16 @@ using Motor = Adafruit_DCMotor;
 using Time = unsigned long long;
 
 enum Side {Left, Right};
-// if movement time set to 0, use intersection
-enum Phase {WaitingForStart, 
+
+enum Task {WaitingForStart, 
             MovingForward, 
             Reversing, 
             Turning, 
             OpeningArms, 
             ClosingArms, 
-            Detect};
+            Detecting};
 
+// toDo: add previous reading here so no need to store previous intersection and all of that
 class LineSensor {
 private: 
   int pin;
@@ -39,7 +40,8 @@ private:
   // input
   LineSensor lineSensor[2];
   // State variables
-  Phase phase;
+  int phase;
+  Task task;
   int currentCube;
   // movement state variables
   bool line; // true if stop movement on intersection or stop rotation on line detection
@@ -57,6 +59,10 @@ private:
   int motorStep = 10;
   // for the rotation
   int currentDirection, lastDirection, startDirection;
+  // for intersection
+  bool currentlyOnIntersection, previouslyOnIntersection;
+  // for arms
+  bool armsMoving;
   // distance from the ramp
   double distanceFromRamp; // m
   // CALIBRATION CONSTANTS
@@ -122,7 +128,13 @@ public:
       currentDirection = 0;
       lastDirection = 0;
 
-      phase = WaitingForStart;
+      currentlyOnIntersection = false;
+      previouslyOnIntersection = false;
+
+      armsMoving = false;
+
+      task = WaitingForStart;
+      phase = 0;
       currentCube = 1;
   }
 
@@ -164,13 +176,19 @@ public:
   }
 
   void closeArms() {
+    armsMoving = true;
     startTime = currentTime;
     armsServo.write(closedAngle);
   }
 
   void openArms() {
+    armsMoving = true;
     startTime = currentTime;
     armsServo.write(openAngle);
+  }
+
+  void stopArms() {
+    armsMoving = false;
   }
 
   void followLine() {
@@ -185,24 +203,24 @@ public:
   }
 
   bool isMoving() {
-    return currentMotorSpeed[Left] > 0 || currentMotorSpeed[Right] > 0;
+    return currentMotorSpeed[Left] > 0 || currentMotorSpeed[Right] > 0 || armsMoving;
   }
 
-  bool foundLine(Side turningDirection) {
+  bool foundLine() {
     lastDirection = currentDirection;
     currentDirection = getDirection();
 
     if (currentDirection==0) {
-      if (turningDirection==Left) return lastDirection==1;
+      if (rotationDirection==Left) return lastDirection==1;
       else return lastDirection==-1;
     }
     return false;
   }
 
   bool foundIntersection() {
-    bool readingLeft = lineSensor[Left].read();
-    bool readingRight = lineSensor[Right].read();
-    return readingLeft && readingRight;
+    previouslyOnIntersection = currentlyOnIntersection;
+    currentlyOnIntersection = lineSensor[Left].read() && lineSensor[Right].read();
+    return currentlyOnIntersection && !previouslyOnIntersection;
   }
 
   bool timedOut(Time targetTime) {
@@ -228,11 +246,12 @@ public:
   }
 
   bool reachedArmsDestination() {
+    Serial.println("waiting for arms");
     return timedOut(targetMovementTime);
   }
 
-  Phase getPhase() {
-    return phase;
+  Task getTask() {
+    return task;
   }
 
   int getCurrentCube() {
@@ -260,46 +279,40 @@ public:
     }
   }
 
-  // toDo: advance phases in correct order, set line and target movmement times
-  void advancePhase() {
-    switch (phase) {
-      case WaitingForStart:
-        phase = MovingForward;
-        break;
-      case MovingForward:
-        phase = ClosingArms;
-        break;
-      case ClosingArms:
-        phase = MovingForwrd2;
-        break;
-      case MovingForwrd2:
-        phase = Turning;
-        break;
-      case Turning:
-        phase = OpeningArms;
-        break;
-      case OpeningArms:
-        phase = MovingBack;
-        break;
-      case MovingBack:
-        phase = Turning2;
-        break;
-      case Turning2:
-        phase = Moving3;
-        break;
-      case Moving3:
-        phase = Reversing;
-        break;
-      case Reversing:
-        phase = Turning3;
-        break;
-      case Turning3:
-        phase = Moving4;
-        break;
-      case Moving4:
-        phase = WaitingForStart;
-        break;
+  // toDo: advance tasks in correct order, set line and target movmement times
+  void nextTask() {
+    if (phase==0) { // on button press
+      task = OpeningArms;
+      targetMovementTime = 1e3;
+    } else if (phase==1){ // arms opened
+      task = MovingForward;
+      line = true;
+    } else if (phase==2){ // box's intersection
+      task = MovingForward;
+      line = true;
+    } else if (phase==3){ // dropoff intersection
+      task = MovingForward;
+      line = false;
+      targetMovementTime = 0e3;
+    } else if (phase==4){ // destination
+      task = ClosingArms;
+      targetMovementTime = 1e3;
+    } else if (phase==5){ // arms closed
+      Serial.println("arms closed, going forward");
+      task = MovingForward;
+      line = false;
+      targetMovementTime = 3e3;
+    } else if (phase==6){ // went forward
+      task = Turning;
+      rotationDirection = Left;
+      line = true;
+      targetMovementTime = 3e3;
+    } else if (phase==7){ // turned back
+      task = MovingForward;
+      line = true;
+    } else if (phase==8){
     }
+    ++phase;
   }
 
 };
@@ -321,52 +334,54 @@ void loop() {
   robot.updateTime();
   robot.updatePosition();
   robot.blinkLeds();
-  Phase phase = robot.getPhase();
-  if (phase == WaitingForStart) {
-      Serial.println("Waiting for start");
+  Task task = robot.getTask();
+  if (task == WaitingForStart) {
       //if (robot.buttonOn()) {
       if (robot.timedOut(3e3)) {
-        robot.openArms();
-        robot.advancePhase();
+        robot.nextTask();
       }
-  } else if (phase == MovingForward) {
+  } else if (task == MovingForward) {
     if (!robot.isMoving()) {
       robot.start();
     } else if (!robot.reachedLinearDestination()) {
       robot.followLine();
     } else {
       robot.stop();
-      robot.advancePhase();
+      robot.nextTask();
     }
-  } else if (phase == Reversing) {
+  } else if (task == Reversing) {
     if (!robot.isMoving()) {
       robot.start();
     } else if (!robot.reachedLinearDestination()) {
       // carry on, do nothing
     } else {
       robot.stop();
-      robot.advancePhase();
+      robot.nextTask();
     }
-  } else if (phase == Turning) {
+  } else if (task == Turning) {
     if (!robot.isMoving()) {
       robot.startRotation();
     } else if (!robot.reachedTurningDestination()) {
       // carry on, do nothing
     } else {
       robot.stop();
-      robot.advancePhase();
+      robot.nextTask();
     }
-  } else if (phase == ClosingArms) {
-    robot.closeArms();
-    if (robot.reachedArmsDestination()) {
-      robot.advancePhase();
+  } else if (task == ClosingArms) {
+    if (!robot.isMoving()) {
+      robot.closeArms();
+    } else if (robot.reachedArmsDestination()) {
+      robot.stopArms();
+      robot.nextTask();
     }
-  } else if (phase == OpeningArms) {
-    robot.openArms();
-    if (robot.reachedArmsDestination()) {
-      robot.advancePhase();
+  } else if (task == OpeningArms) {
+    if (!robot.isMoving()) {
+      robot.openArms();
+    } else if (robot.reachedArmsDestination()) {
+      robot.stopArms();
+      robot.nextTask();
     }
-  } else if (phase == Detect) {
+  } else if (task == Detecting) {
     // toDo: implement detection
   }
 }
