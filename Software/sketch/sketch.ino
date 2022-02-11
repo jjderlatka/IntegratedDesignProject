@@ -75,7 +75,7 @@ private:
   // double closedAngle=45, openAngle=135;
   double closedAngle=45, openAngle=135;
   // toDo: use distances instead
-  Time cubeTime[3] = {24e3};
+  Time cubeTime[3] = {14.3e3, 16e3, 18e3};
 
   void setMotorSpeed(Side side, int speed){
     if (speed < 0) speed = 0;
@@ -192,8 +192,6 @@ public:
   }
 
   void followLine() {
-    Serial.println(currentMotorSpeed[Left]);
-    Serial.println(currentMotorSpeed[Right]);
     int direction = getDirection();
     if (direction!=0 && currentTime-lastMotorUpdate > effectIntervalMotor) {
       if (direction==-1) setMotorSpeed(Right, currentMotorSpeed[Right]-motorStep);
@@ -222,10 +220,7 @@ public:
   bool foundIntersection() {
     previouslyOnIntersection = currentlyOnIntersection;
     currentlyOnIntersection = lineSensor[Left].read() && lineSensor[Right].read();
-    if (currentlyOnIntersection && !previouslyOnIntersection) {
-      Serial.println("found an intersection");
-      return true;
-    }
+    return currentlyOnIntersection && !previouslyOnIntersection;
   }
 
   bool timedOut(Time targetTime) {
@@ -288,38 +283,86 @@ public:
     if (phase==0) { // on button press
       task = OpeningArms;
       targetMovementTime = 0.5e3;
+      phase = 1;
     } else if (phase==1){ // arms opened
       task = MovingForward;
       line = true;
+      phase = 2;
     } else if (phase==2){ // box's intersection
       task = MovingForward;
       line = true;
+      phase = 3;
     } else if (phase==3){ // dropoff intersection
       task = MovingForward;
       line = false;
-      targetMovementTime = 14.5e3;
+      targetMovementTime = cubeTime[currentCube-1];
+      phase = 4;
     } else if (phase==4){ // destination
       task = ClosingArms;
-      targetMovementTime = 0.5e3;
-    } else if (phase==5){ // arms closed
+      targetMovementTime = 3e3; // toDo: change back to low
+      
+      if(currentCube==1) phase = 5;
+      else phase = 6;
+    } else if (phase==5){ // arms closed, cube 1
       task = MovingForward;
       line = false;
-      targetMovementTime = 2e3;
-    } else if (phase==6){ // went forward
+      targetMovementTime = 3e3;
+      phase = 7;
+    } else if (phase==6) { // arms closed, other cubes
+      task = Reversing;
+      line = false;
+      targetMovementTime = 3e3;
+      phase = 7;
+    } else if (phase==7){ // made room for turn
       task = Turning;
       rotationDirection = Left;
       line = true;
       targetMovementTime = 3e3;
-    } else if (phase==7){ // turned back
+      phase = 8;
+    } else if (phase==8){ // turned back
       task = OpeningArms;
       targetMovementTime = 0.5e3;
-    } else if (phase==8){ // move forward
+      phase = 9;
+    } else if (phase==9){ // move forward
       task = MovingForward;
       line = true;
-    } else if (phase==9) {
-      return;
+      phase = 10;
+    } else if (phase==10) { // on dropoff intersection
+      task = MovingForward;
+      line = false;
+      targetMovementTime = 1.75e3;
+      phase = 11;
+    } else if (phase==11) { // rear axis over dropoff intersection
+      task = Turning;
+      rotationDirection = Right;
+      line = false;
+      targetMovementTime = 2.15e3;
+      phase = 12;
+    } else if (phase==12) { // turned into the box
+      task = MovingForward;
+      line = false;
+      targetMovementTime = 2e3;
+      phase = 13;
+    } else if (phase==13) { // reached point of dropping the cube
+      task = Reversing;
+      targetMovementTime = 2e3;
+      phase = 14;
+    } else if (phase==14) { // reversed
+      task = Turning;
+      rotationDirection = Right;
+      line = true;
+      targetMovementTime = 2e3;
+      phase = 15;
+    } else if (phase==15) { // turned back to the line
+      task = Reversing;
+      line = true;
+
+      ++currentCube;
+      if (currentCube<=3) phase = 3;
+      else phase = 16;
+    } else if (phase==16) {
+      task = WaitingForStart;
     }
-    ++phase;
   }
 
 };
@@ -358,7 +401,7 @@ void loop() {
     }
   } else if (task == Reversing) {
     if (!robot.isMoving()) {
-      robot.start();
+      robot.reverse();
     } else if (!robot.reachedLinearDestination()) {
       // carry on, do nothing
     } else {
