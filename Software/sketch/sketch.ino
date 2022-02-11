@@ -192,6 +192,8 @@ public:
   }
 
   void followLine() {
+    Serial.println(currentMotorSpeed[Left]);
+    Serial.println(currentMotorSpeed[Right]);
     int direction = getDirection();
     if (direction!=0 && currentTime-lastMotorUpdate > effectIntervalMotor) {
       if (direction==-1) setMotorSpeed(Right, currentMotorSpeed[Right]-motorStep);
@@ -220,7 +222,10 @@ public:
   bool foundIntersection() {
     previouslyOnIntersection = currentlyOnIntersection;
     currentlyOnIntersection = lineSensor[Left].read() && lineSensor[Right].read();
-    return currentlyOnIntersection && !previouslyOnIntersection;
+    if (currentlyOnIntersection && !previouslyOnIntersection) {
+      Serial.println("found an intersection");
+      return true;
+    }
   }
 
   bool timedOut(Time targetTime) {
@@ -246,7 +251,6 @@ public:
   }
 
   bool reachedArmsDestination() {
-    Serial.println("waiting for arms");
     return timedOut(targetMovementTime);
   }
 
@@ -283,7 +287,7 @@ public:
   void nextTask() {
     if (phase==0) { // on button press
       task = OpeningArms;
-      targetMovementTime = 1e3;
+      targetMovementTime = 0.5e3;
     } else if (phase==1){ // arms opened
       task = MovingForward;
       line = true;
@@ -293,24 +297,27 @@ public:
     } else if (phase==3){ // dropoff intersection
       task = MovingForward;
       line = false;
-      targetMovementTime = 0e3;
+      targetMovementTime = 14.5e3;
     } else if (phase==4){ // destination
       task = ClosingArms;
-      targetMovementTime = 1e3;
+      targetMovementTime = 0.5e3;
     } else if (phase==5){ // arms closed
-      Serial.println("arms closed, going forward");
       task = MovingForward;
       line = false;
-      targetMovementTime = 3e3;
+      targetMovementTime = 2e3;
     } else if (phase==6){ // went forward
       task = Turning;
       rotationDirection = Left;
       line = true;
       targetMovementTime = 3e3;
     } else if (phase==7){ // turned back
+      task = OpeningArms;
+      targetMovementTime = 0.5e3;
+    } else if (phase==8){ // move forward
       task = MovingForward;
       line = true;
-    } else if (phase==8){
+    } else if (phase==9) {
+      return;
     }
     ++phase;
   }
