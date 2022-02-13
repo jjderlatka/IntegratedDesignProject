@@ -66,16 +66,16 @@ private:
   // distance from the ramp
   double distanceFromRamp; // m
   // CALIBRATION CONSTANTS
-  Time rampTime = 13405; //ms
-  double flatSpeed = 0.09940028 * 1e-3; // m/ms
-  // TODO: WRONG
-  //double angularSpeed = 19.416 * 1e-3; // deg / ms
-  double angularSpeed = 30 * 1e-3; // deg / ms
+  Time armsMovingTime = 0.5e3;
+  Time time180 = 3.5e3;
+  Time time90 = 2.15e3;
+  Time reversingTime = 3e3;
   // arms
   // double closedAngle=45, openAngle=135;
   double closedAngle=45, openAngle=135;
   // toDo: use distances instead
-  Time cubeTime[3] = {14.5e3, 19.2e3, 23.2e3};
+  Time cubeTime[3] = {14.5e3, 1e3, 1e3};
+  Time dropOffTime[3] = {3e3, 2e3, 1e3};
 
   void setMotorSpeed(Side side, int speed){
     if (speed < 0) speed = 0;
@@ -278,119 +278,196 @@ public:
     }
   }
 
-  // toDo: advance tasks in correct order, set line and target movmement times
   void nextTask() {
+    // START
     if (phase==0) { // on button press
       task = OpeningArms;
-      targetMovementTime = 0.5e3;
-      phase = 1;
+      targetMovementTime = armsMovingTime;
     } else if (phase==1){ // arms opened
       task = MovingForward;
       line = true;
-      phase = 2;
     } else if (phase==2){ // box's intersection
       task = MovingForward;
       line = true;
-      phase = 3;
-    } else if (phase==3){ // dropoff intersection
+    } 
+    //  FIRST CUBE
+    else if (phase==3){ // dropoff intersection
       task = MovingForward;
       line = false;
-      targetMovementTime = cubeTime[currentCube-1];
-      phase = 4;
+      targetMovementTime = cubeTime[0];
     } else if (phase==4){ // destination
       task = ClosingArms;
-      targetMovementTime = 10e3; // toDo: change back to low
-      
-      if(currentCube==1) phase = 5;
-      else phase = 6;
-    } else if (phase==5){ // arms closed, cube 1
+      targetMovementTime = armsMovingTime;
+    } else if (phase==5){ // arms closed
+      task = Detecting;
+    } else if (phase==6) {
       task = MovingForward;
       line = false;
       targetMovementTime = 3e3;
-      phase = 7;
-    } else if (phase==6) { // arms closed, other cubes
-      task = Reversing;
-      line = false;
-      targetMovementTime = 1.85e3;
-      phase = 7;
     } else if (phase==7){ // made room for turn
       task = Turning;
       rotationDirection = Left;
       line = true;
-      targetMovementTime = 3.5e3;
-      phase = 8;
+      targetMovementTime = time180;
     } else if (phase==8){ // turned back
       task = OpeningArms;
-      targetMovementTime = 0.5e3;
-      
-      if(currentCube==3) phase = 9;
-      else phase = 10;
+      targetMovementTime = armsMovingTime;
     } else if (phase==9){ // opened arms
       task = MovingForward;
       line = true;
-      phase = 10;
-    } else if (phase==10) { // opened arms, cube 1
-      task = MovingForward;
-      line = true;
-      phase = 11;
-    } else if (phase==11) { // on dropoff intersection
+    }  else if (phase==10) { // on dropoff intersection
       task = MovingForward;
       line = false;
       targetMovementTime = 1.75e3;
-      phase = 12;
-    } else if (phase==12) { // rear axis over dropoff intersection
+    } else if (phase==11) { // rear axis over dropoff intersection
       task = Turning;
       rotationDirection = Right;
       line = false;
-      targetMovementTime = 2.15e3;
-      phase = 13;
-    } else if (phase==13) { // turned into the box
+      targetMovementTime = time90;
+    } else if (phase==12) { // turned into the box
       task = MovingForward;
       line = false;
-      targetMovementTime = 2e3;
-      phase = 14;
-    } else if (phase==14) { // reached point of dropping the cube
+      targetMovementTime = dropOffTime[0];
+    } else if (phase==13) { // reached point of dropping the cube
       task = Reversing;
-      targetMovementTime = 2e3;
-      phase = 15;
-    } else if (phase==15) { // reversed
+      targetMovementTime = dropOffTime[0];
+    } else if (phase==14) { // reversed
       task = Turning;
       rotationDirection = Right;
       line = true;
-      targetMovementTime = 2e3;
-      phase = 16;
-    } else if (phase==16) { // turned back to the line
+      targetMovementTime = time90 - 0.5e3;
+    }
+    // SECOND CUBE
+    else if (phase==15){ // turned back to the line
+      task = MovingForward;
+      line = true;
+    } else if (phase==16){ // 1st cube intersection
+      task = MovingForward;
+      line = false;
+      targetMovementTime = cubeTime[1];
+    } else if (phase==17){ // destination
+      task = ClosingArms;
+      targetMovementTime = armsMovingTime;
+    } else if (phase==18){ // arms closed
+      task = Detecting;
+    } else if (phase==19) {
+      task = Reversing;
+      line = false;
+      targetMovementTime = reversingTime;
+    } else if (phase==20){ // made room for turn
+      task = Turning;
+      rotationDirection = Left;
+      line = true;
+      targetMovementTime = time180;
+    } else if (phase==21){ // turned back
+      task = OpeningArms;
+      targetMovementTime = armsMovingTime;
+    } else if (phase==22){ // opened arms
+      task = MovingForward;
+      line = true;
+    }  else if (phase==23) { // on dropoff intersection
+      task = MovingForward;
+      line = false;
+      targetMovementTime = 1.75e3;
+    } else if (phase==24) { // rear axis over dropoff intersection
+      task = Turning;
+      rotationDirection = Right;
+      line = false;
+      targetMovementTime = time90;
+    } else if (phase==25) { // turned into the box
+      task = MovingForward;
+      line = false;
+      targetMovementTime = dropOffTime[1];
+    } else if (phase==26) { // reached point of dropping the cube
+      task = Reversing;
+      targetMovementTime = dropOffTime[1];
+    } else if (phase==27) { // reversed
+      task = Turning;
+      rotationDirection = Right;
+      line = true;
+      targetMovementTime = time90 - 0.5e3;
+    } 
+    // THIRD CUBE
+    else if (phase==28){ // turned back to the line
+      task = MovingForward;
+      line = true;
+    } else if (phase==29){ // 1st cube intersection
+      task = MovingForward;
+      line = true;
+    } else if (phase==30) { // end box intersection
+      task = MovingForward;
+      line = false;
+      targetMovementTime = cubeTime[2];
+    } else if (phase==31){ // destination
+      task = ClosingArms;
+      targetMovementTime = armsMovingTime;
+    } else if (phase==32){ // arms closed
+      task = Detecting;
+    } else if (phase==33) {
+      task = Reversing;
+      line = false;
+      targetMovementTime = reversingTime;
+    } else if (phase==34){ // made room for turn
+      task = Turning;
+      rotationDirection = Left;
+      line = true;
+      targetMovementTime = time180;
+    } else if (phase==35){ // turned back
+      task = OpeningArms;
+      targetMovementTime = armsMovingTime;
+    } else if (phase==36){ // opened arms
+      task = MovingForward;
+      line = true;
+    } else if (phase==37){ // 1st cube intersection
+      task = MovingForward;
+      line = true;
+    } else if (phase==38) { // on dropoff intersection
+      task = MovingForward;
+      line = false;
+      targetMovementTime = 1.75e3;
+    } else if (phase==39) { // rear axis over dropoff intersection
+      task = Turning;
+      rotationDirection = Right;
+      line = false;
+      targetMovementTime = time90;
+    } else if (phase==40) { // turned into the box
+      task = MovingForward;
+      line = false;
+      targetMovementTime = dropOffTime[2];
+    } else if (phase==41) { // reached point of dropping the cube
+      task = Reversing;
+      targetMovementTime = dropOffTime[2];
+    } else if (phase==42) { // reversed
+      task = Turning;
+      rotationDirection = Right;
+      line = true;
+      targetMovementTime = time90 - 0.5e3;
+    } else if (phase==43) { // turned back to the line
       task = Reversing;
       line = true;
-
-      ++currentCube;
-      if (currentCube<=3) phase = 3;
-      else phase = 17;
-    } else if (phase==17) {
+    }
+    // END
+    else if (phase==44) {
       task = Turning;
       rotationDirection = Left;
       line = true;
       targetMovementTime = 3.5e3;
-      phase = 18;
-    } else if (phase==18) {
+    } else if (phase==45) {
       task = MovingForward;
       line = true;
-      phase = 19;
-    } else if (phase==19) {
+    } else if (phase==46) {
       task = Turning;
       line = true;
       targetMovementTime = 3.5e3;
-      phase = 20;
-    } else if (phase==20) {
+    } else if (phase==47) {
       task = Reversing;
       line = false;
       targetMovementTime = 4.5e3;
-      phase = 21;
-    } else if (phase==21) {
+    } else if (phase==48) {
       task = WaitingForStart;
     }
+    ++phase;
   }
-
 };
 
 //
