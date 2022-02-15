@@ -31,18 +31,92 @@ public:
   }
 };
 
+class CubeDetector {
+private:
+  static const double threshold = 90;
+  bool grabbed;
+  int reading;
+  int pin;
+public:
+  CubeDetector () = default;
+  CubeDetector (int p) {
+    pin = p;
+    reading = 0;
+    grabbed = false;
+    pinMode(pin, INPUT);
+  }
+
+  bool read() {
+    Serial.println(analogRead(pin)); // todo remove
+    if (grabbed && reading==0) {
+      if (analogRead(pin) < threshold) reading = 1;
+      else reading = 2;
+    }
+    return reading;
+  }
+
+  bool isGrabbed() {
+    return grabbed;
+  }
+
+  void grab() {
+    grabbed = true;
+    reading = 0;
+  }
+
+  void drop() {
+    grabbed = false;
+  }
+};
+
+class LED {
+private:
+  int pin;
+public:
+  LED () = default;
+  LED (int p) {
+    pin = p;
+    pinMode(pin, OUTPUT);
+  }
+
+  void turnOn() {
+    digitalWrite(pin, HIGH);
+  }
+
+  void turnOff() {
+    digitalWrite(pin, LOW);
+  }
+};
+
+class Button {
+private:
+  int pin;
+public:
+  Button () = default;
+  Button (int p) {
+    pin = p;
+    pinMode(pin, INPUT_PULLUP);
+  }
+
+  bool isPressed() {
+    return !digitalRead(pin);
+  }
+};
+
 class Robot {
 private:
   // output
   MotorShield motorshield;
   Motor* motor[2];
   Servo armsServo;
+  LED ambient, cubeType[2];
   // input
   LineSensor lineSensor[2];
+  CubeDetector cubeDetector;
+  Button mainSwitch;
   // State variables
   int phase;
   Task task;
-  int currentCube;
   // movement state variables
   bool line; // true if stop movement on intersection or stop rotation on line detection
   Time targetMovementTime; // time to drive forward or rotate ToDo: make an angle or distace
@@ -63,19 +137,17 @@ private:
   bool currentlyOnIntersection, previouslyOnIntersection;
   // for arms
   bool armsMoving;
-  // distance from the ramp
-  double distanceFromRamp; // m
   // CALIBRATION CONSTANTS
   Time armsMovingTime = 0.5e3;
-  Time time180 = 3.5e3;
-  Time time90 = 2.15e3;
-  Time reversingTime = 3e3;
+  Time time180 = 3.2e3;
+  Time time90 = 2e3;
+  Time reversingTime = 2e3;
   // arms
-  // double closedAngle=45, openAngle=135;
-  double closedAngle=45, openAngle=135;
+  double closedAngle=20, openAngle=120;
   // toDo: use distances instead
-  Time cubeTime[3] = {14.5e3, 1e3, 1e3};
-  Time dropOffTime[3] = {3e3, 2e3, 1e3};
+  Time cubeTime[3] = {13.5e3, 2.8e3, 2.2e3};
+  Time dropOffTime[3] = {1.8e3, 1.4e3, 1e3};
+
 
   void setMotorSpeed(Side side, int speed){
     if (speed < 0) speed = 0;
@@ -103,7 +175,12 @@ public:
     int rightMotorPort,
     int leftLineSensorPin,
     int rightLineSensorPin,
-    int servoPin) {
+    int servoPin,
+    int cubePin,
+    int ambientLEDPin,
+    int cubeTypeLEDPin1,
+    int cubeTypeLEDPin2,
+    int buttonPin) {
       // think about breaking this into several functions for clarity
       motorshield = Adafruit_MotorShield();
       motor[Left] = motorshield.getMotor(leftMotorPort);
@@ -115,6 +192,14 @@ public:
 
       lineSensor[Left] = LineSensor(leftLineSensorPin);
       lineSensor[Right] = LineSensor(rightLineSensorPin);
+
+      cubeDetector = CubeDetector(cubePin);
+
+      ambient = LED(ambientLEDPin);
+      cubeType[0] = LED(cubeTypeLEDPin1);
+      cubeType[1] = LED(cubeTypeLEDPin2);
+
+      mainSwitch = Button(buttonPin);
 
       if (!motorshield.begin()); // toDo: handle error
 
@@ -135,7 +220,6 @@ public:
 
       task = WaitingForStart;
       phase = 0;
-      currentCube = 1;
   }
 
   void start() {
@@ -191,6 +275,14 @@ public:
     armsMoving = false;
   }
 
+  void grab() {
+    cubeDetector.grab();
+  }
+
+  void drop() {
+    cubeDetector.drop();
+  }
+
   void followLine() {
     int direction = getDirection();
     if (direction!=0 && currentTime-lastMotorUpdate > effectIntervalMotor) {
@@ -200,6 +292,10 @@ public:
       setMotorSpeed(Left, maxSpeed);
       setMotorSpeed(Right, maxSpeed);
     }
+  }
+
+  bool buttonPressed() {
+    return mainSwitch.isPressed();
   }
 
   bool isMoving() {
@@ -227,14 +323,6 @@ public:
     return targetTime <= currentTime-startTime;
   }
 
-  bool rotatedByAngle(double deg) {
-    return (currentTime-startTime)*angularSpeed >= deg;
-  }
-
-  bool reachedDistance(double dist) {
-    return distanceFromRamp >= dist;
-  }
-
   bool reachedLinearDestination() {
     if (line) return foundIntersection();
     else return timedOut(targetMovementTime);
@@ -253,28 +341,24 @@ public:
     return task;
   }
 
-  int getCurrentCube() {
-    return currentCube;
-  }
-
   void updateTime() {
     previousTime = currentTime;
     currentTime = static_cast<Time>(millis());
   }
 
-  void updatePosition() {
-    // ToDo: discuss with the team
-    if (currentTime-startTime <= rampTime) distanceFromRamp = 0;
-    else {
-      double currentSpeed = flatSpeed * (min(currentMotorSpeed[Left], currentMotorSpeed[Right])/maxSpeed);
-      distanceFromRamp += (currentTime-previousTime) * currentSpeed;
-    }
-  }
-
   void blinkLeds() {
-    // ToDo: implement
+    //cubeDetector.read(); // todo remove
     if (isMoving()) {
-      //blink
+      ambient.turnOn();
+    } else {
+      ambient.turnOff();
+    }
+    if (cubeDetector.isGrabbed()) {
+      if (cubeDetector.read()==1) cubeType[0].turnOn();
+      if (cubeDetector.read()==2) cubeType[1].turnOn();
+    } else {
+      cubeType[0].turnOff();
+      cubeType[1].turnOff();
     }
   }
 
@@ -303,7 +387,7 @@ public:
     } else if (phase==6) {
       task = MovingForward;
       line = false;
-      targetMovementTime = 3e3;
+      targetMovementTime = 2e3;
     } else if (phase==7){ // made room for turn
       task = Turning;
       rotationDirection = Left;
@@ -318,10 +402,11 @@ public:
     }  else if (phase==10) { // on dropoff intersection
       task = MovingForward;
       line = false;
-      targetMovementTime = 1.75e3;
+      targetMovementTime =1e3;
     } else if (phase==11) { // rear axis over dropoff intersection
       task = Turning;
-      rotationDirection = Right;
+      if (cubeDetector.read()==1) rotationDirection = Left;
+      if (cubeDetector.read()==2) rotationDirection = Right;
       line = false;
       targetMovementTime = time90;
     } else if (phase==12) { // turned into the box
@@ -329,11 +414,13 @@ public:
       line = false;
       targetMovementTime = dropOffTime[0];
     } else if (phase==13) { // reached point of dropping the cube
+      drop();
       task = Reversing;
       targetMovementTime = dropOffTime[0];
     } else if (phase==14) { // reversed
       task = Turning;
-      rotationDirection = Right;
+      if (cubeDetector.read()==1) rotationDirection = Left;
+      if (cubeDetector.read()==2) rotationDirection = Right;
       line = true;
       targetMovementTime = time90 - 0.5e3;
     }
@@ -368,10 +455,11 @@ public:
     }  else if (phase==23) { // on dropoff intersection
       task = MovingForward;
       line = false;
-      targetMovementTime = 1.75e3;
+      targetMovementTime = 1e3;
     } else if (phase==24) { // rear axis over dropoff intersection
       task = Turning;
-      rotationDirection = Right;
+      if (cubeDetector.read()==1) rotationDirection = Left;
+      if (cubeDetector.read()==2) rotationDirection = Right;
       line = false;
       targetMovementTime = time90;
     } else if (phase==25) { // turned into the box
@@ -379,11 +467,13 @@ public:
       line = false;
       targetMovementTime = dropOffTime[1];
     } else if (phase==26) { // reached point of dropping the cube
+      drop();
       task = Reversing;
       targetMovementTime = dropOffTime[1];
     } else if (phase==27) { // reversed
       task = Turning;
-      rotationDirection = Right;
+      if (cubeDetector.read()==1) rotationDirection = Left;
+      if (cubeDetector.read()==2) rotationDirection = Right;
       line = true;
       targetMovementTime = time90 - 0.5e3;
     } 
@@ -424,10 +514,11 @@ public:
     } else if (phase==38) { // on dropoff intersection
       task = MovingForward;
       line = false;
-      targetMovementTime = 1.75e3;
+      targetMovementTime = 1e3;
     } else if (phase==39) { // rear axis over dropoff intersection
       task = Turning;
-      rotationDirection = Right;
+      if (cubeDetector.read()==1) rotationDirection = Left;
+      if (cubeDetector.read()==2) rotationDirection = Right;
       line = false;
       targetMovementTime = time90;
     } else if (phase==40) { // turned into the box
@@ -435,35 +526,29 @@ public:
       line = false;
       targetMovementTime = dropOffTime[2];
     } else if (phase==41) { // reached point of dropping the cube
+      drop();
       task = Reversing;
       targetMovementTime = dropOffTime[2];
     } else if (phase==42) { // reversed
       task = Turning;
-      rotationDirection = Right;
+      if (cubeDetector.read()==1) rotationDirection = Right;
+      if (cubeDetector.read()==2) rotationDirection = Left;
       line = true;
       targetMovementTime = time90 - 0.5e3;
-    } else if (phase==43) { // turned back to the line
-      task = Reversing;
-      line = true;
     }
     // END
-    else if (phase==44) {
-      task = Turning;
-      rotationDirection = Left;
-      line = true;
-      targetMovementTime = 3.5e3;
-    } else if (phase==45) {
+    else if (phase==43) {
       task = MovingForward;
       line = true;
-    } else if (phase==46) {
+    } else if (phase==44) {
       task = Turning;
       line = true;
-      targetMovementTime = 3.5e3;
-    } else if (phase==47) {
+      targetMovementTime = time180;
+    } else if (phase==45) {
       task = Reversing;
       line = false;
       targetMovementTime = 4.5e3;
-    } else if (phase==48) {
+    } else if (phase==46) {
       task = WaitingForStart;
     }
     ++phase;
@@ -478,20 +563,18 @@ Robot robot;
 
 void setup() {
   // put your setup code here, to run once:
-  Serial.begin(9600);           // set up Serial library at 9600 bps
+  Serial.begin(9600);
   Serial.println("Porous a drink");
-  robot = Robot(3, 4, 12, 13, 1);
+  robot = Robot(1, 2, 12, 13, 1, A0, 5, 2, 3, 7);
 }
 
 void loop() {
   robot.updateTime();
-  robot.updatePosition();
   robot.blinkLeds();
   Task task = robot.getTask();
   if (task == WaitingForStart) {
-      //if (robot.buttonOn()) {
-      if (robot.timedOut(3e3)) {
-        robot.nextTask();
+      if (robot.buttonPressed()) {
+        robot.nextTask(); 
       }
   } else if (task == MovingForward) {
     if (!robot.isMoving()) {
@@ -535,6 +618,7 @@ void loop() {
       robot.nextTask();
     }
   } else if (task == Detecting) {
-    // toDo: implement detection
+    robot.grab();
+    robot.nextTask();
   }
 }
