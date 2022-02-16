@@ -7,6 +7,9 @@ using Time = unsigned long long;
 
 enum Side {Left, Right};
 
+enum Cube {Dense, Light};
+// dense - blue box, green led
+
 enum Task {WaitingForStart, 
             MovingForward, 
             Reversing, 
@@ -14,6 +17,21 @@ enum Task {WaitingForStart,
             OpeningArms, 
             ClosingArms, 
             Detecting};
+
+class Button {
+private:
+  int pin;
+public:
+  Button () = default;
+  Button (int p) {
+    pin = p;
+    pinMode(pin, INPUT_PULLUP);
+  }
+
+  bool isPressed() {
+    return digitalRead(pin);
+  }
+};
 
 // toDo: add previous reading here so no need to store previous intersection and all of that
 class LineSensor {
@@ -36,6 +54,10 @@ private:
   static const double threshold = 90;
   int reading, lastReading;
   int pin;
+
+  Button typeButton[3];
+  int types[3];
+  int currentCube = 0;
 public:
   CubeDetector () = default;
   CubeDetector (int p) {
@@ -43,15 +65,27 @@ public:
     reading = -1;
     pinMode(pin, INPUT);
   }
+  CubeDetector (int cube1, int cube2, int cube3) {
+    reading = -1;
+    typeButton[0] = Button(cube1);
+    typeButton[1] = Button(cube2);
+    typeButton[2] = Button(cube3);
+    types[0] = Dense;
+    types[1] = Dense;
+    types[2] = Dense;
+    currentCube = 0;
+  }
 
   void grab() {
-    if (analogRead(pin) > threshold) reading = 0;
-    else reading = 1;
+    //if (analogRead(pin) > threshold) reading = Light;
+    //else reading = Dense;
+    reading = types[currentCube];
   }
 
   void drop() {
     lastReading = reading;
     reading = -1;
+    ++currentCube;
   }
 
   int getReading() {
@@ -60,6 +94,12 @@ public:
 
   int getLastReading() {
     return lastReading;
+  }
+
+  void readButtons() {
+    if (typeButton[0].isPressed()) types[0] = Light;
+    if (typeButton[1].isPressed()) types[1] = Light;
+    if (typeButton[2].isPressed()) types[2] = Light;
   }
 };
 
@@ -79,21 +119,6 @@ public:
 
   void turnOff() {
     digitalWrite(pin, LOW);
-  }
-};
-
-class Button {
-private:
-  int pin;
-public:
-  Button () = default;
-  Button (int p) {
-    pin = p;
-    pinMode(pin, INPUT_PULLUP);
-  }
-
-  bool isPressed() {
-    return digitalRead(pin);
   }
 };
 
@@ -137,10 +162,10 @@ private:
   Time time90 = 2e3;
   Time reversingTime = 2e3;
   // arms
-  double closedAngle=20, openAngle=120;
+  double closedAngle=70, openAngle=155;
   // toDo: use distances instead
   Time cubeTime[3] = {13.5e3, 2.8e3, 2.2e3};
-  Time dropOffTime[3] = {1.8e3, 1.4e3, 1e3};
+  Time dropOffTime[3] = {1.8e3, 1.2e3, 0.8e3};
 
 
   void setMotorSpeed(Side side, int speed){
@@ -170,11 +195,13 @@ public:
     int leftLineSensorPin,
     int rightLineSensorPin,
     int servoPin,
-    int cubePin,
     int ambientLEDPin,
     int cubeTypeLEDPin1,
     int cubeTypeLEDPin2,
-    int buttonPin) {
+    int buttonPin,
+    int buttonType1,
+    int buttonType2,
+    int buttonType3) {
       // think about breaking this into several functions for clarity
       motorshield = Adafruit_MotorShield();
       motor[Left] = motorshield.getMotor(leftMotorPort);
@@ -187,11 +214,11 @@ public:
       lineSensor[Left] = LineSensor(leftLineSensorPin);
       lineSensor[Right] = LineSensor(rightLineSensorPin);
 
-      cubeDetector = CubeDetector(cubePin);
+      cubeDetector = CubeDetector(buttonType1, buttonType2, buttonType3);
 
       ambient = LED(ambientLEDPin);
-      cubeType[0] = LED(cubeTypeLEDPin1);
-      cubeType[1] = LED(cubeTypeLEDPin2);
+      cubeType[Dense] = LED(cubeTypeLEDPin1);
+      cubeType[Light] = LED(cubeTypeLEDPin2);
 
       mainSwitch = Button(buttonPin);
 
@@ -340,20 +367,23 @@ public:
     currentTime = static_cast<Time>(millis());
   }
 
+  void updateCubeDetector() {
+    cubeDetector.readButtons();
+  }
+
   void blinkLeds() {
-    //cubeDetector.read(); // todo remove
     if (isMoving()) {
       ambient.turnOn();
     } else {
       ambient.turnOff();
     }
     if (cubeDetector.getReading()==-1) {
-      cubeType[0].turnOff();
-      cubeType[1].turnOff();
-    } else if (cubeDetector.getReading()==0) {
-      cubeType[0].turnOn();
-    } else if (cubeDetector.getReading()==1) {
-      cubeType[1].turnOn();
+      cubeType[Dense].turnOff();
+      cubeType[Light].turnOff();
+    } else if (cubeDetector.getReading()==Dense) {
+      cubeType[Dense].turnOn();
+    } else if (cubeDetector.getReading()==Light) {
+      cubeType[Light].turnOn();
     }
   }
 
@@ -382,7 +412,7 @@ public:
     } else if (phase==6) {
       task = MovingForward;
       line = false;
-      targetMovementTime = 2e3;
+      targetMovementTime = 2.5e3;
     } else if (phase==7){ // made room for turn
       task = Turning;
       rotationDirection = Left;
@@ -400,8 +430,8 @@ public:
       targetMovementTime =1e3;
     } else if (phase==11) { // rear axis over dropoff intersection
       task = Turning;
-      if (cubeDetector.getReading()==0) rotationDirection = Left;
-      if (cubeDetector.getReading()==1) rotationDirection = Right;
+      if (cubeDetector.getReading()==Dense) rotationDirection = Left;
+      if (cubeDetector.getReading()==Light) rotationDirection = Right;
       line = false;
       targetMovementTime = time90;
     } else if (phase==12) { // turned into the box
@@ -414,8 +444,8 @@ public:
       targetMovementTime = dropOffTime[0];
     } else if (phase==14) { // reversed
       task = Turning;
-      if (cubeDetector.getLastReading()==0) rotationDirection = Left;
-      if (cubeDetector.getLastReading()==1) rotationDirection = Right;
+      if (cubeDetector.getLastReading()==Dense) rotationDirection = Left;
+      if (cubeDetector.getLastReading()==Light) rotationDirection = Right;
       line = true;
       targetMovementTime = time90 - 0.5e3;
     }
@@ -453,8 +483,8 @@ public:
       targetMovementTime = 1e3;
     } else if (phase==24) { // rear axis over dropoff intersection
       task = Turning;
-      if (cubeDetector.getReading()==0) rotationDirection = Left;
-      if (cubeDetector.getReading()==1) rotationDirection = Right;
+      if (cubeDetector.getReading()==Dense) rotationDirection = Left;
+      if (cubeDetector.getReading()==Light) rotationDirection = Right;
       line = false;
       targetMovementTime = time90;
     } else if (phase==25) { // turned into the box
@@ -467,8 +497,8 @@ public:
       targetMovementTime = dropOffTime[1];
     } else if (phase==27) { // reversed
       task = Turning;
-      if (cubeDetector.getLastReading()==0) rotationDirection = Left;
-      if (cubeDetector.getLastReading()==1) rotationDirection = Right;
+      if (cubeDetector.getLastReading()==Dense) rotationDirection = Left;
+      if (cubeDetector.getLastReading()==Light) rotationDirection = Right;
       line = true;
       targetMovementTime = time90 - 0.5e3;
     } 
@@ -512,8 +542,8 @@ public:
       targetMovementTime = 1e3;
     } else if (phase==39) { // rear axis over dropoff intersection
       task = Turning;
-      if (cubeDetector.getReading()==0) rotationDirection = Left;
-      if (cubeDetector.getReading()==1) rotationDirection = Right;
+      if (cubeDetector.getReading()==Dense) rotationDirection = Left;
+      if (cubeDetector.getReading()==Light) rotationDirection = Right;
       line = false;
       targetMovementTime = time90;
     } else if (phase==40) { // turned into the box
@@ -526,8 +556,8 @@ public:
       targetMovementTime = dropOffTime[2];
     } else if (phase==42) { // reversed
       task = Turning;
-      if (cubeDetector.getLastReading()==0) rotationDirection = Right;
-      if (cubeDetector.getLastReading()==1) rotationDirection = Left;
+      if (cubeDetector.getLastReading()==Dense) rotationDirection = Right;
+      if (cubeDetector.getLastReading()==Light) rotationDirection = Left;
       line = true;
       targetMovementTime = time90 - 0.5e3;
     }
@@ -560,7 +590,7 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
   Serial.println("Porous a drink");
-  robot = Robot(1, 2, 11, 10, 2, A0, 0, 12, 13, 7);
+  robot = Robot(1, 2, 11, 10, 2, 0, 12, 13, 7, 1, 2, 3);
 }
 
 void loop() {
@@ -568,6 +598,7 @@ void loop() {
   robot.blinkLeds();
   Task task = robot.getTask();
   if (task == WaitingForStart) {
+      robot.updateCubeDetector();
       if (robot.buttonPressed()) {
         robot.nextTask(); 
       }
