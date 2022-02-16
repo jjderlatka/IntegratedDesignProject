@@ -34,38 +34,32 @@ public:
 class CubeDetector {
 private:
   static const double threshold = 90;
-  bool grabbed;
-  int reading;
+  int reading, lastReading;
   int pin;
 public:
   CubeDetector () = default;
   CubeDetector (int p) {
     pin = p;
-    reading = 0;
-    grabbed = false;
+    reading = -1;
     pinMode(pin, INPUT);
   }
 
-  bool read() {
-    Serial.println(analogRead(pin)); // todo remove
-    if (grabbed && reading==0) {
-      if (analogRead(pin) < threshold) reading = 1;
-      else reading = 2;
-    }
-    return reading;
-  }
-
-  bool isGrabbed() {
-    return grabbed;
-  }
-
   void grab() {
-    grabbed = true;
-    reading = 0;
+    if (analogRead(pin) > threshold) reading = 0;
+    else reading = 1;
   }
 
   void drop() {
-    grabbed = false;
+    lastReading = reading;
+    reading = -1;
+  }
+
+  int getReading() {
+    return reading;
+  }
+
+  int getLastReading() {
+    return lastReading;
   }
 };
 
@@ -99,7 +93,7 @@ public:
   }
 
   bool isPressed() {
-    return !digitalRead(pin);
+    return digitalRead(pin);
   }
 };
 
@@ -353,12 +347,13 @@ public:
     } else {
       ambient.turnOff();
     }
-    if (cubeDetector.isGrabbed()) {
-      if (cubeDetector.read()==1) cubeType[0].turnOn();
-      if (cubeDetector.read()==2) cubeType[1].turnOn();
-    } else {
+    if (cubeDetector.getReading()==-1) {
       cubeType[0].turnOff();
       cubeType[1].turnOff();
+    } else if (cubeDetector.getReading()==0) {
+      cubeType[0].turnOn();
+    } else if (cubeDetector.getReading()==1) {
+      cubeType[1].turnOn();
     }
   }
 
@@ -405,8 +400,8 @@ public:
       targetMovementTime =1e3;
     } else if (phase==11) { // rear axis over dropoff intersection
       task = Turning;
-      if (cubeDetector.read()==1) rotationDirection = Left;
-      if (cubeDetector.read()==2) rotationDirection = Right;
+      if (cubeDetector.getReading()==0) rotationDirection = Left;
+      if (cubeDetector.getReading()==1) rotationDirection = Right;
       line = false;
       targetMovementTime = time90;
     } else if (phase==12) { // turned into the box
@@ -419,8 +414,8 @@ public:
       targetMovementTime = dropOffTime[0];
     } else if (phase==14) { // reversed
       task = Turning;
-      if (cubeDetector.read()==1) rotationDirection = Left;
-      if (cubeDetector.read()==2) rotationDirection = Right;
+      if (cubeDetector.getLastReading()==0) rotationDirection = Left;
+      if (cubeDetector.getLastReading()==1) rotationDirection = Right;
       line = true;
       targetMovementTime = time90 - 0.5e3;
     }
@@ -458,8 +453,8 @@ public:
       targetMovementTime = 1e3;
     } else if (phase==24) { // rear axis over dropoff intersection
       task = Turning;
-      if (cubeDetector.read()==1) rotationDirection = Left;
-      if (cubeDetector.read()==2) rotationDirection = Right;
+      if (cubeDetector.getReading()==0) rotationDirection = Left;
+      if (cubeDetector.getReading()==1) rotationDirection = Right;
       line = false;
       targetMovementTime = time90;
     } else if (phase==25) { // turned into the box
@@ -472,8 +467,8 @@ public:
       targetMovementTime = dropOffTime[1];
     } else if (phase==27) { // reversed
       task = Turning;
-      if (cubeDetector.read()==1) rotationDirection = Left;
-      if (cubeDetector.read()==2) rotationDirection = Right;
+      if (cubeDetector.getLastReading()==0) rotationDirection = Left;
+      if (cubeDetector.getLastReading()==1) rotationDirection = Right;
       line = true;
       targetMovementTime = time90 - 0.5e3;
     } 
@@ -517,8 +512,8 @@ public:
       targetMovementTime = 1e3;
     } else if (phase==39) { // rear axis over dropoff intersection
       task = Turning;
-      if (cubeDetector.read()==1) rotationDirection = Left;
-      if (cubeDetector.read()==2) rotationDirection = Right;
+      if (cubeDetector.getReading()==0) rotationDirection = Left;
+      if (cubeDetector.getReading()==1) rotationDirection = Right;
       line = false;
       targetMovementTime = time90;
     } else if (phase==40) { // turned into the box
@@ -531,8 +526,8 @@ public:
       targetMovementTime = dropOffTime[2];
     } else if (phase==42) { // reversed
       task = Turning;
-      if (cubeDetector.read()==1) rotationDirection = Right;
-      if (cubeDetector.read()==2) rotationDirection = Left;
+      if (cubeDetector.getLastReading()==0) rotationDirection = Right;
+      if (cubeDetector.getLastReading()==1) rotationDirection = Left;
       line = true;
       targetMovementTime = time90 - 0.5e3;
     }
@@ -547,7 +542,7 @@ public:
     } else if (phase==45) {
       task = Reversing;
       line = false;
-      targetMovementTime = 4.5e3;
+      targetMovementTime = 4e3;
     } else if (phase==46) {
       task = WaitingForStart;
     }
@@ -565,7 +560,7 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
   Serial.println("Porous a drink");
-  robot = Robot(1, 2, 12, 13, 1, A0, 5, 2, 3, 7);
+  robot = Robot(1, 2, 11, 10, 2, A0, 0, 12, 13, 7);
 }
 
 void loop() {
