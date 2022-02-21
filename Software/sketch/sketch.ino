@@ -627,7 +627,7 @@ void setup() {
   Serial.begin(9600);
   Serial.println("Porous a drink");
   // initialize robot object using the relevant pin numbers
-  robot = Robot(1, 2, 11, 10, 2, 0, 12, 13, 7, 1, 2, 3);
+  robot = Robot(1, 2, 11, 10, 2, 0, 12, 13, 7, A0);
 }
 
 // in the loop, exectue all functions that need to be run in every interation 
