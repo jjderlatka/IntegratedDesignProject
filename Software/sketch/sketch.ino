@@ -18,6 +18,7 @@ enum Task {WaitingForStart,
             ClosingArms, 
             Detecting};
 
+// Digital button class. Constructed by providing digital pin number
 class Button {
 private:
   int pin;
@@ -28,12 +29,13 @@ public:
     pinMode(pin, INPUT_PULLUP);
   }
 
+  // Reading button state
   bool isPressed() {
     return digitalRead(pin);
   }
 };
 
-// toDo: add previous reading here so no need to store previous intersection and all of that
+// Digital line sensor class. Constructed by providing digital pin number
 class LineSensor {
 private: 
   int pin;
@@ -44,20 +46,18 @@ public:
     pinMode(pin, INPUT);
   }
 
+  // Reading line sensor state
   bool read() {
     return digitalRead(pin);
   }
 };
 
+// Analogue IR cube detector. Constructed by providing analogue pin number. Analogue threshold can be modified here 
 class CubeDetector {
 private:
   static const double threshold = 90;
   int reading, lastReading;
   int pin;
-
-  Button typeButton[3];
-  int types[3];
-  int currentCube = 0;
 public:
   CubeDetector () = default;
   CubeDetector (int p) {
@@ -65,44 +65,31 @@ public:
     reading = -1;
     pinMode(pin, INPUT);
   }
-  CubeDetector (int cube1, int cube2, int cube3) {
-    reading = -1;
-    typeButton[0] = Button(cube1);
-    typeButton[1] = Button(cube2);
-    typeButton[2] = Button(cube3);
-    types[0] = Dense;
-    types[1] = Dense;
-    types[2] = Dense;
-    currentCube = 0;
-  }
 
+  // To be run when arms are closed
   void grab() {
-    //if (analogRead(pin) > threshold) reading = Light;
-    //else reading = Dense;
-    reading = types[currentCube];
+    if (analogRead(pin) > threshold) reading = Light;
+    else reading = Dense;
   }
 
+  // To be run when arms are opened
   void drop() {
     lastReading = reading;
     reading = -1;
-    ++currentCube;
   }
 
+  // Accessing cube detection reading
   int getReading() {
     return reading;
   }
 
+  // Accessing previous cube detection reading
   int getLastReading() {
     return lastReading;
   }
-
-  void readButtons() {
-    if (typeButton[0].isPressed()) types[0] = Light;
-    if (typeButton[1].isPressed()) types[1] = Light;
-    if (typeButton[2].isPressed()) types[2] = Light;
-  }
 };
 
+// Digital output LED
 class LED {
 private:
   int pin;
@@ -122,40 +109,42 @@ public:
   }
 };
 
+// Main class of the code
 class Robot {
 private:
-  // output
+  // Output objects
   MotorShield motorshield;
   Motor* motor[2];
   Servo armsServo;
   LED ambient, cubeType[2];
-  // input
+  // Input objects
   LineSensor lineSensor[2];
   CubeDetector cubeDetector;
   Button mainSwitch;
   // State variables
   int phase;
   Task task;
-  // movement state variables
+  // Task state variables
   bool line; // true if stop movement on intersection or stop rotation on line detection
   Time targetMovementTime; // time to drive forward or rotate ToDo: make an angle or distace
   Side rotationDirection;
-  //
+  // Motors control
   int currentMotorSpeed[2];
   int maxSpeed = 255;
-  // time
+  // Motors constants
+  Time effectIntervalMotor = 100; //ms
+  int motorStep = 10;
+  // Timing
   Time currentTime, previousTime; //ms
   Time startTime; //ms
   Time lastMotorUpdate; //ms
-  // control
-  Time effectIntervalMotor = 100; //ms
-  int motorStep = 10;
-  // for the rotation
+  // Rotation control
   int currentDirection, lastDirection, startDirection;
-  // for intersection
+  // Intersection detection control
   bool currentlyOnIntersection, previouslyOnIntersection;
-  // for arms
+  // Arms movement control
   bool armsMoving;
+
   // CALIBRATION CONSTANTS
   Time armsMovingTime = 0.5e3;
   Time time180 = 3.2e3;
@@ -163,11 +152,11 @@ private:
   Time reversingTime = 2e3;
   // arms
   double closedAngle=70, openAngle=155;
-  // toDo: use distances instead
+  // times to be driven from last intersection to reach each cube
   Time cubeTime[3] = {13.5e3, 2.8e3, 2.2e3};
   Time dropOffTime[3] = {1.8e3, 1.2e3, 0.8e3};
 
-
+  // Set motor on side 'side' to speed 'speed'
   void setMotorSpeed(Side side, int speed){
     if (speed < 0) speed = 0;
     if (speed > maxSpeed) speed = maxSpeed;
@@ -176,6 +165,9 @@ private:
     motor[side]->setSpeed(speed);
   }
 
+  // Return 0 if the robot is aligned with the line, 
+  // -1 if the robot is turning left (right sensor on the line)
+  //  1 if the robot is turning right (left sensor on the line)
   int getDirection() {
     bool readingLeft = lineSensor[Left].read();
     bool readingRight = lineSensor[Right].read();
@@ -188,7 +180,9 @@ private:
   }
 
 public:
+  // default constructor necessary to create global object Robot
   Robot() = default;
+  // main constructor, taking all relevant pin numbers as arguments
   Robot (
     int leftMotorPort, 
     int rightMotorPort,
@@ -199,31 +193,36 @@ public:
     int cubeTypeLEDPin1,
     int cubeTypeLEDPin2,
     int buttonPin,
-    int buttonType1,
-    int buttonType2,
-    int buttonType3) {
-      // think about breaking this into several functions for clarity
+    int cubePin) {
+      // Motorshield & motors initalization
       motorshield = Adafruit_MotorShield();
       motor[Left] = motorshield.getMotor(leftMotorPort);
       motor[Right] = motorshield.getMotor(rightMotorPort);
 
+      // Servo initialization
       if (servoPin==1) servoPin = 10;
       else if (servoPin==2) servoPin = 9;
       armsServo.attach(servoPin);
 
+      // Line sensors initialization
       lineSensor[Left] = LineSensor(leftLineSensorPin);
       lineSensor[Right] = LineSensor(rightLineSensorPin);
 
-      cubeDetector = CubeDetector(buttonType1, buttonType2, buttonType3);
+      // Cube detector initialization
+      cubeDetector = CubeDetector(cubePin);
 
+      // LEDs initialization
       ambient = LED(ambientLEDPin);
       cubeType[Dense] = LED(cubeTypeLEDPin1);
       cubeType[Light] = LED(cubeTypeLEDPin2);
 
+      // Main switch initialization
       mainSwitch = Button(buttonPin);
 
+      // Catch motorshield errors
       if (!motorshield.begin()); // toDo: handle error
 
+      // Initialize robot's state variables
       currentTime = 0; //ms
       startTime = 0; //ms
       lastMotorUpdate = 0; //ms
@@ -239,10 +238,12 @@ public:
 
       armsMoving = false;
 
+      // Set initial task and phase
       task = WaitingForStart;
       phase = 0;
   }
 
+  // Drive forward with max speed
   void start() {
     startTime = currentTime;
     setMotorSpeed(Left, maxSpeed);
@@ -251,6 +252,7 @@ public:
     motor[Right]->run(FORWARD);
   }
 
+  // Reverse with max speed
   void reverse() {
     startTime = currentTime;
     setMotorSpeed(Left, maxSpeed);
@@ -259,6 +261,8 @@ public:
     motor[Right]->run(BACKWARD);
   }
 
+  // Start rotation with max rotation speed, 
+  // in the direction (left/right) specified in variable 'rotationDirection'
   void startRotation() {
     startTime = currentTime;
     startDirection = getDirection();
@@ -273,6 +277,7 @@ public:
     }
   }
 
+  // Stop both motors
   void stop() {
     setMotorSpeed(Left, 0);
     setMotorSpeed(Right, 0);
@@ -280,30 +285,37 @@ public:
     motor[Right]->run(RELEASE);
   }
 
+  // Move arms to the closed angle
   void closeArms() {
     armsMoving = true;
     startTime = currentTime;
     armsServo.write(closedAngle);
   }
 
+  // Move arms to the opened angle
   void openArms() {
     armsMoving = true;
     startTime = currentTime;
     armsServo.write(openAngle);
   }
 
+  // Stop arms
+  // required to update armsMoving variable, used by 'isMoving' function, to blink the ambient diode
   void stopArms() {
     armsMoving = false;
   }
 
+  // Function to be run when arms are closed. cubeDetector is a private member hence the need for this function
   void grab() {
     cubeDetector.grab();
   }
 
+  // Function to be run when arms are opened. cubeDetector is a private member hence the need for this function
   void drop() {
     cubeDetector.drop();
   }
 
+  // Line following code
   void followLine() {
     int direction = getDirection();
     if (direction!=0 && currentTime-lastMotorUpdate > effectIntervalMotor) {
@@ -315,14 +327,17 @@ public:
     }
   }
 
+  // Reading button state. mainSwitch is a private member hence the need for this function
   bool buttonPressed() {
     return mainSwitch.isPressed();
   }
 
+  // return whether the robot is moving or not. Movement defined as one of the motors moving or arms moving
   bool isMoving() {
     return currentMotorSpeed[Left] > 0 || currentMotorSpeed[Right] > 0 || armsMoving;
   }
 
+  // Function to check whether the robot has returned to the line
   bool foundLine() {
     lastDirection = currentDirection;
     currentDirection = getDirection();
@@ -334,43 +349,52 @@ public:
     return false;
   }
 
+  // Function to check whether the robot has reached an interesection
   bool foundIntersection() {
     previouslyOnIntersection = currentlyOnIntersection;
     currentlyOnIntersection = lineSensor[Left].read() && lineSensor[Right].read();
     return currentlyOnIntersection && !previouslyOnIntersection;
   }
 
+  // Function to check whether a given amount of time has elapsed.
+  // It was supposed to be replaced with distance measurements, 
+  // but there was no time to make calibrations neccessary for this change
   bool timedOut(Time targetTime) {
     return targetTime <= currentTime-startTime;
   }
 
+  // Function to trigger robot stopping if the destianation
+  // specified using variables 'line' and 'targetMovementTime' has been reached
   bool reachedLinearDestination() {
     if (line) return foundIntersection();
     else return timedOut(targetMovementTime);
   }
 
+  // Function to trigger robot stopping if the destianation
+  // specified using variables 'line' and 'targetMovementTime' has been reached
   bool reachedTurningDestination() {
     if (line) return foundLine() && timedOut(targetMovementTime);
     else return timedOut(targetMovementTime);
   }
 
+  // Function to trigger robot stopping if the destianation
+  // specified using variable 'targetMovementTime' has been reached
   bool reachedArmsDestination() {
     return timedOut(targetMovementTime);
   }
 
+  // Return current task - private member
   Task getTask() {
     return task;
   }
 
+  // Update Current time
   void updateTime() {
     previousTime = currentTime;
     currentTime = static_cast<Time>(millis());
   }
 
-  void updateCubeDetector() {
-    cubeDetector.readButtons();
-  }
-
+  // Blink the amber movememt led and switch cube type indicating leds
   void blinkLeds() {
     if (isMoving()) {
       ambient.turnOn();
@@ -387,12 +411,21 @@ public:
     }
   }
 
+  // ROBOT'S TASKS SEQUENCE
+  // (please read this function after reading everything else in the code, especially the loop's function content)
+  // Robot's movement and all other actions are set here. After a given phase has finished, 
+  // next task and all its parameters are set. The parameters include mainly stop condition.
+
+  // Target movement time is the time after which the robot is stopped if Line is set to false.
+  // Line is set to true if the robot is to stop on intersection in linear momvement or 
+  // stop when finds the line in rotation.
+  // If Line is set to true, the line finding condition will be checked only after the targetMovementTime has elapsed
   void nextTask() {
     // START
-    if (phase==0) { // on button press
+    if (phase==0) { // on button press - > open arms
       task = OpeningArms;
       targetMovementTime = armsMovingTime;
-    } else if (phase==1){ // arms opened
+    } else if (phase==1){ // arms opened - > go forward
       task = MovingForward;
       line = true;
     } else if (phase==2){ // box's intersection
@@ -403,6 +436,7 @@ public:
     else if (phase==3){ // dropoff intersection
       task = MovingForward;
       line = false;
+      // from the cube dropoff intersection, carry on for cubeTime[0] time
       targetMovementTime = cubeTime[0];
     } else if (phase==4){ // destination
       task = ClosingArms;
@@ -456,6 +490,7 @@ public:
     } else if (phase==16){ // 1st cube intersection
       task = MovingForward;
       line = false;
+      // from the 1st cube's intersection, carry on for cubeTime[1] time
       targetMovementTime = cubeTime[1];
     } else if (phase==17){ // destination
       task = ClosingArms;
@@ -549,6 +584,7 @@ public:
     } else if (phase==40) { // turned into the box
       task = MovingForward;
       line = false;
+      // from the third box's beginning, carry on for cubeTime[2] time
       targetMovementTime = dropOffTime[2];
     } else if (phase==41) { // reached point of dropping the cube
       drop();
@@ -590,12 +626,17 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
   Serial.println("Porous a drink");
+  // initialize robot object using the relevant pin numbers
   robot = Robot(1, 2, 11, 10, 2, 0, 12, 13, 7, 1, 2, 3);
 }
 
+// in the loop, exectue all functions that need to be run in every interation 
+// and then run functions specific to currently performed task
 void loop() {
+  // every iteration:
   robot.updateTime();
   robot.blinkLeds();
+  // currently performed task:
   Task task = robot.getTask();
   if (task == WaitingForStart) {
       robot.updateCubeDetector();
