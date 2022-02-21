@@ -465,7 +465,7 @@ public:
     } else if (phase==19) {
       task = Reversing;
       line = false;
-      targetMovementTime = reversingTime;
+      targetMovementTime = 1e3;
     } else if (phase==20){ // made room for turn
       task = Turning;
       rotationDirection = Left;
